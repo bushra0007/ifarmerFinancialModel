@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Email Fetcher",
+  "version": "2.0.0",
+  "description": "Fetch emails by recipient name/email and keywords",
+  "permissions": ["activeTab", "identity", "storage"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "host_permissions": ["http://localhost:5000/*", "https://accounts.google.com/*"]
+}
