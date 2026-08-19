@@ -385,11 +385,11 @@ if os.path.exists(logo_path):
 
 # ─── TITLE SECTION ────────────────────────────────────────────────────────────
 st.markdown(f"""
-<div style="background-color: #000000 !important; padding: 2.5rem 3rem 1.5rem 3rem; margin: 0 -2rem 1.5rem -2rem;">
-    <div style="display: flex; align-items: flex-end; gap: 1.5rem; margin-bottom: 0;">
+<div style="background-color: #000000 !important; padding: 2rem 3rem 1rem 3rem; margin: 0 -2rem 1rem -2rem;">
+    <div style="margin-bottom: 0.3rem;">
         <img src="data:image/png;base64,{logo_b64}" style="height: 120px; width: auto;" />
-        <p style="margin: 0; padding-bottom: 15px; font-size: 26px; font-weight: 400; color: #cccccc !important;">Supply Chain P&L Analytics</p>
     </div>
+    <p style="margin: 0; font-size: 26px; font-weight: 400; color: #cccccc !important;">Supply Chain P&L Analytics</p>
 </div>
 """, unsafe_allow_html=True)
 
