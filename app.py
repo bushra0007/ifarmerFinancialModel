@@ -387,7 +387,7 @@ if os.path.exists(logo_path):
 st.markdown(f"""
 <div style="background-color: #000000 !important; padding: 2.5rem 3rem 1.5rem 3rem; margin: 0 -2rem 1.5rem -2rem;">
     <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.8rem;">
-        <img src="data:image/png;base64,{logo_b64}" style="height: 100px; width: auto;" />
+        <img src="data:image/png;base64,{logo_b64}" style="height: 140px; width: auto;" />
     </div>
     <p style="margin: 0; font-size: 1.6rem; font-weight: 400; color: #cccccc !important;">Supply Chain P&L Analytics</p>
 </div>
@@ -648,7 +648,7 @@ with st.sidebar:
     st.markdown(f"""
     <div style="padding: 1rem 0 1.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 1.5rem;">
         <div style="display: flex; align-items: center; gap: 0.6rem;">
-            <img src="data:image/png;base64,{logo_b64}" style="height: 40px; width: auto;" />
+            <img src="data:image/png;base64,{logo_b64}" style="height: 60px; width: auto;" />
             <div>
                 <p style="margin: 0; font-size: 0.65rem; color: #999999;">Supply Chain P&L Analytics</p>
             </div>
