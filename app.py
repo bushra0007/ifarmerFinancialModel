@@ -5,6 +5,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import io
+import os
+import base64
 from pnl_calculator import (
     prepare_data,
     validate_data,
@@ -375,7 +377,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─── Load Logo ──────────────────────────────────────────────────────────────
-import base64
 logo_path = os.path.join(os.path.dirname(__file__), "assets", "ifarmer_logo.png")
 logo_b64 = ""
 if os.path.exists(logo_path):
