@@ -2053,13 +2053,40 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                     p, _, _, _ = calc_unit_price(mon_df)
                                     monthly_stats[mon_name] = {"cogs": c, "sd": s, "price": p, "n": len(mon_df)}
 
-                            # Rejection analysis
-                            if qty_proc_col and qty_recv_col:
-                                tot_proc = float(bh[qty_proc_col].sum())
-                                tot_recv = float(bh[qty_recv_col].sum())
-                                rejection_pct = ((tot_proc - tot_recv) / tot_proc * 100) if tot_proc > 0 else 0
+                            # Rejection analysis - Full (REJECT) and Partial (Partially Received)
+                            status_col = "Status" if "Status" in txn_data.columns else None
+                            full_rejection_pct = 0
+                            partial_rejection_pct = 0
+                            full_rejection_count = 0
+                            partial_rejection_count = 0
+                            total_txn_count = len(bh)
+
+                            if status_col and status_col in bh.columns:
+                                # Full rejection: Status == 'REJECT'
+                                full_reject = bh[bh[status_col].str.upper() == "REJECT"]
+                                full_rejection_count = len(full_reject)
+                                if qty_proc_col and qty_proc_col in bh.columns:
+                                    tot_proc_full = float(bh[qty_proc_col].sum())
+                                    tot_proc_rejected = float(full_reject[qty_proc_col].sum()) if not full_reject.empty and qty_proc_col in full_reject.columns else 0
+                                    full_rejection_pct = (tot_proc_rejected / tot_proc_full * 100) if tot_proc_full > 0 else 0
+
+                                # Partial rejection: Status == 'Partially Received'
+                                partial_reject = bh[bh[status_col].str.upper() == "PARTIALLY RECEIVED"]
+                                partial_rejection_count = len(partial_reject)
+                                if qty_proc_col and qty_proc_col in bh.columns and qty_recv_col and qty_recv_col in bh.columns:
+                                    for _, row in partial_reject.iterrows():
+                                        proc = float(row[qty_proc_col]) if pd.notna(row[qty_proc_col]) else 0
+                                        recv = float(row[qty_recv_col]) if pd.notna(row[qty_recv_col]) else 0
+                                        if proc > 0:
+                                            partial_rejection_pct += ((proc - recv) / proc * 100)
+                                    if partial_rejection_count > 0:
+                                        partial_rejection_pct /= partial_rejection_count
                             else:
-                                rejection_pct = 0
+                                # Fallback: use quantity difference
+                                if qty_proc_col and qty_recv_col:
+                                    tot_proc = float(bh[qty_proc_col].sum())
+                                    tot_recv = float(bh[qty_recv_col].sum())
+                                    full_rejection_pct = ((tot_proc - tot_recv) / tot_proc * 100) if tot_proc > 0 else 0
 
                             # Supplier-specific COGS per buyer
                             supplier_cogs_map = {}
@@ -2086,7 +2113,11 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 "unit_price_on": up_on, "unit_price_on_std": up_on_std,
                                 "unit_price_off": up_off, "unit_price_off_std": up_off_std,
                                 "monthly_stats": monthly_stats,
-                                "rejection_pct": rejection_pct,
+                                "full_rejection_pct": full_rejection_pct,
+                                "partial_rejection_pct": partial_rejection_pct,
+                                "full_rejection_count": full_rejection_count,
+                                "partial_rejection_count": partial_rejection_count,
+                                "total_txn_count": total_txn_count,
                                 "supplier_cogs_map": supplier_cogs_map,
                             }
 
@@ -2250,12 +2281,22 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                     unit_price_forecast = buyer_profile["unit_price_mean"]
                                     unit_price_source = f"Buyer overall avg"
 
-                            # ── Rejection forecast ──
-                            rejection_pct = 0
-                            if supplier_profile and supplier_profile["rejection_pct"] > 0:
-                                rejection_pct = supplier_profile["rejection_pct"]
+                            # ── Rejection forecast (Full and Partial separately) ──
+                            full_rejection_pct = 0
+                            partial_rejection_pct = 0
+                            full_rejection_count = 0
+                            partial_rejection_count = 0
+
+                            if supplier_profile:
+                                full_rejection_pct = supplier_profile.get("full_rejection_pct", 0)
+                                partial_rejection_pct = supplier_profile.get("partial_rejection_pct", 0)
+                                full_rejection_count = supplier_profile.get("full_rejection_count", 0)
+                                partial_rejection_count = supplier_profile.get("partial_rejection_count", 0)
                             elif buyer_profile:
-                                rejection_pct = buyer_profile["rejection_pct"]
+                                full_rejection_pct = buyer_profile.get("full_rejection_pct", 0)
+                                partial_rejection_pct = buyer_profile.get("partial_rejection_pct", 0)
+                                full_rejection_count = buyer_profile.get("full_rejection_count", 0)
+                                partial_rejection_count = buyer_profile.get("partial_rejection_count", 0)
 
                             # ── Calculate P&L ──
                             dp_revenue = proc_qty * price_kg
@@ -2290,7 +2331,10 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 "price_kg": price_kg,
                                 "unit_price_forecast": unit_price_forecast,
                                 "unit_price_source": unit_price_source,
-                                "rejection_pct": rejection_pct,
+                                "full_rejection_pct": full_rejection_pct,
+                                "partial_rejection_pct": partial_rejection_pct,
+                                "full_rejection_count": full_rejection_count,
+                                "partial_rejection_count": partial_rejection_count,
                                 "revenue": dp_revenue,
                                 "cogs_pct": cogs_pct, "cogs_source": cogs_source, "cogs_confidence": cogs_confidence,
                                 "cogs": deal_cogs,
@@ -2308,6 +2352,8 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 "supplier_n": supplier_profile["n_total"] if supplier_profile else 0,
                                 "monthly_stats": buyer_profile["monthly_stats"] if buyer_profile else {},
                                 "supplier_cogs_map": buyer_profile.get("supplier_cogs_map", {}) if buyer_profile else {},
+                                "historical_purchase_price": unit_price_forecast,
+                                "total_txn_count": buyer_profile.get("total_txn_count", 0) if buyer_profile else 0,
                             }
 
                         # Initialize deals
@@ -2327,12 +2373,20 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 on_n = (seasons == "On-Season").sum()
                                 off_n = (seasons == "Off-Season").sum()
                                 st.write(f"- On-Season txns: **{on_n}** | Off-Season txns: **{off_n}**")
+                            if "Status" in txn_data.columns:
+                                status_counts = txn_data["Status"].value_counts()
+                                full_reject = status_counts.get("REJECT", 0)
+                                partial_reject = status_counts.get("Partially Received", 0)
+                                st.write(f"- Full Rejections (REJECT): **{full_reject}** ({full_reject/len(txn_data)*100:.1f}%)")
+                                st.write(f"- Partial Rejections (Partially Received): **{partial_reject}** ({partial_reject/len(txn_data)*100:.1f}%)")
                             st.write("**Forecast Factors:**")
                             st.write("- Buyer-specific COGS% & S&D% (season-adjusted)")
                             st.write("- **Supplier-specific COGS per buyer** (different suppliers = different costs)")
                             st.write("- Monthly variations within buyer")
                             st.write("- On-season vs off-season adjustments")
-                            st.write("- Rejection rate from historical data")
+                            st.write("- **Full rejection rate** (REJECT status) from historical data")
+                            st.write("- **Partial rejection rate** (Partially Received status) from historical data")
+                            st.write("- Historical purchase price from transaction data")
                             st.write("- Finance cost from buyer-specific alloc files")
 
                         # ── Step 1: Select Buyer (outside form for dynamic filtering) ──
@@ -2397,8 +2451,9 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                             if dp_unit_price > 0:
                                 result["unit_price_forecast"] = dp_unit_price
                                 result["unit_price_source"] = "User input"
-                            # Calculate procure qty from rejection
-                            result["proc_qty_forecast"] = dp_proc_qty * (1 - result["rejection_pct"] / 100)
+                            # Calculate procure qty from rejection (full + partial combined)
+                            total_rejection = result["full_rejection_pct"] + result["partial_rejection_pct"]
+                            result["proc_qty_forecast"] = dp_proc_qty * (1 - total_rejection / 100)
                             st.session_state.row_forecast_deals.append(result)
                             st.rerun()
 
@@ -2417,9 +2472,10 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                     "Supplier": d["supplier"],
                                     "Season": d["season"],
                                     "Procure Qty (KG)": f"{d['proc_qty']:,.0f}",
-                                    "Forecast Reject %": f"{d['rejection_pct']:.2f}%",
-                                    "Receive Qty (KG)": f"{d.get('proc_qty_forecast', d['proc_qty']):,.0f}",
+                                    "Full Rejection %": f"{d['full_rejection_pct']:.2f}%",
+                                    "Partial Rejection %": f"{d['partial_rejection_pct']:.2f}%",
                                     "Purchase Price": f"BDT {d['unit_price_forecast']:,.0f}" if d['unit_price_forecast'] > 0 else "N/A",
+                                    "Historical Price": f"BDT {d['historical_purchase_price']:,.0f}" if d.get('historical_purchase_price', 0) > 0 else "N/A",
                                     "Selling Price/KG": f"BDT {d['price_kg']:,.0f}",
                                     "Sales": fmt_crore(d["revenue"]),
                                     "COGS": fmt_crore(d["cogs"]),
@@ -2454,9 +2510,10 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 "Supplier": "",
                                 "Season": "",
                                 "Procure Qty (KG)": f"{sum(d['proc_qty'] for d in deals):,.0f}",
-                                "Forecast Reject %": "",
-                                "Receive Qty (KG)": f"{sum(d.get('proc_qty_forecast', d['proc_qty']) for d in deals):,.0f}",
+                                "Full Rejection %": "",
+                                "Partial Rejection %": "",
                                 "Purchase Price": "",
+                                "Historical Price": "",
                                 "Selling Price/KG": "",
                                 "Sales": fmt_crore(t_rev),
                                 "COGS": fmt_crore(t_cogs),
@@ -2507,21 +2564,21 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                         st.metric("Data Points", f"{d['data_points']}")
                                         st.caption(f"Buyer: {d['buyer_n']} | Supplier: {d['supplier_n']}")
                                     with ic3:
-                                        st.metric("Rejection Rate", f"{d['rejection_pct']:.2f}%")
-                                        st.caption(f"Receive: {d.get('proc_qty_forecast', d['proc_qty']):,.0f} KG")
+                                        st.metric("Full Rejection", f"{d['full_rejection_pct']:.2f}%")
+                                        st.caption(f"({d['full_rejection_count']} rejected txns)")
                                     with ic4:
-                                        st.metric("Season", d["season"])
+                                        st.metric("Partial Rejection", f"{d['partial_rejection_pct']:.2f}%")
+                                        st.caption(f"({d['partial_rejection_count']} partial txns)")
 
                                     ic5, ic6, ic7 = st.columns(3)
                                     with ic5:
                                         st.metric("Purchase Price", f"BDT {d['unit_price_forecast']:,.0f}" if d['unit_price_forecast'] > 0 else "N/A")
                                         st.caption(d["unit_price_source"])
                                     with ic6:
-                                        st.metric("Selling Price", f"BDT {d['price_kg']:,.0f}")
+                                        st.metric("Historical Price", f"BDT {d['historical_purchase_price']:,.0f}" if d.get('historical_purchase_price', 0) > 0 else "N/A")
+                                        st.caption("From transaction history")
                                     with ic7:
-                                        margin = d['price_kg'] - d['unit_price_forecast'] if d['unit_price_forecast'] > 0 else 0
-                                        st.metric("Price Margin", f"BDT {margin:,.0f}")
-                                        st.caption(f"{margin/d['price_kg']*100:.1f}% of selling price" if d['price_kg'] > 0 else "")
+                                        st.metric("Season", d["season"])
 
                                     st.write("**Forecast Sources:**")
                                     src_df = pd.DataFrame({
