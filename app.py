@@ -374,14 +374,19 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ─── Load Logo ──────────────────────────────────────────────────────────────
+import base64
+logo_path = os.path.join(os.path.dirname(__file__), "assets", "ifarmer_logo.png")
+logo_b64 = ""
+if os.path.exists(logo_path):
+    with open(logo_path, "rb") as f:
+        logo_b64 = base64.b64encode(f.read()).decode()
+
 # ─── TITLE SECTION ────────────────────────────────────────────────────────────
-st.markdown("""
+st.markdown(f"""
 <div style="background-color: #000000 !important; padding: 2.5rem 3rem 1.5rem 3rem; margin: 0 -2rem 1.5rem -2rem;">
     <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.8rem;">
-        <svg width="60" height="60" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22L6.66 19.7C7.14 19.87 7.64 20 8 20C19 20 22 3 22 3C21 5 14 5.25 9 6.25C4 7.25 2 11.5 2 13.5C2 15.5 3.75 17.25 3.75 17.25C7 8 17 8 17 8Z" fill="#4CAF50"/>
-        </svg>
-        <h1 style="margin: 0; font-size: 2.8rem; font-weight: 800; color: white !important; text-shadow: none; letter-spacing: -1px;">iFarmer</h1>
+        <img src="data:image/png;base64,{logo_b64}" style="height: 60px; width: auto;" />
     </div>
     <p style="margin: 0; font-size: 1.6rem; font-weight: 400; color: #cccccc !important;">Supply Chain P&L Analytics</p>
 </div>
@@ -639,14 +644,11 @@ def pnl_summary_table(df: pd.DataFrame, include_type: str = None) -> pd.DataFram
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.markdown("""
+    st.markdown(f"""
     <div style="padding: 1rem 0 1.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 1.5rem;">
         <div style="display: flex; align-items: center; gap: 0.6rem;">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M17 8C8 10 5.9 16.17 3.82 21.34L5.71 22L6.66 19.7C7.14 19.87 7.64 20 8 20C19 20 22 3 22 3C21 5 14 5.25 9 6.25C4 7.25 2 11.5 2 13.5C2 15.5 3.75 17.25 3.75 17.25C7 8 17 8 17 8Z" fill="#4CAF50"/>
-            </svg>
+            <img src="data:image/png;base64,{logo_b64}" style="height: 40px; width: auto;" />
             <div>
-                <h2 style="margin: 0; font-size: 1.3rem; font-weight: 800; color: #ffffff;">iFarmer</h2>
                 <p style="margin: 0; font-size: 0.65rem; color: #999999;">Supply Chain P&L Analytics</p>
             </div>
         </div>
