@@ -1808,7 +1808,7 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                     st.markdown("""
                     <div class="section-header">
                         <span style="font-size: 1.3rem;"> </span>
-                        <h3 style="margin: 0;">Deal-level forecast</h3>
+                        <h3 style="margin: 0;">Probable deals to happen</h3>
                     </div>
                     """, unsafe_allow_html=True)
 
