@@ -648,9 +648,9 @@ with st.sidebar:
     st.markdown(f"""
     <div style="padding: 1rem 0 1.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 1.5rem;">
         <div style="margin-bottom: 0.3rem;">
-            <img src="data:image/png;base64,{logo_b64}" style="height: 50px; width: auto;" />
+            <img src="data:image/png;base64,{logo_b64}" style="height: 80px; width: auto;" />
         </div>
-        <p style="margin: 0; font-size: 0.75rem; color: #999999;">Supply Chain P&L Analytics</p>
+        <p style="margin: 0; font-size: 22px; font-weight: 700; color: #999999;">Supply Chain P&L Analytics</p>
     </div>
     """, unsafe_allow_html=True)
 
