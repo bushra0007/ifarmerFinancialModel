@@ -389,7 +389,7 @@ st.markdown(f"""
     <div style="margin-bottom: 0.3rem;">
         <img src="data:image/png;base64,{logo_b64}" style="height: 120px; width: auto;" />
     </div>
-    <p style="margin: 0; font-size: 26px; font-weight: 400; color: #cccccc !important;">Supply Chain P&L Analytics</p>
+    <p style="margin: 0; font-size: 26px; font-weight: 700; color: #cccccc !important;">Supply Chain P&L Analytics</p>
 </div>
 """, unsafe_allow_html=True)
 
