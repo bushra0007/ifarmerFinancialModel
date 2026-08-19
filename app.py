@@ -1803,12 +1803,12 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                             display[col] = display[col].apply(lambda x: fmt_fin(x) if isinstance(x, (int, float)) else x)
                     st.dataframe(display, use_container_width=True)
 
-                    # Row-Level P&L Forecast
+                    # Deal-level forecast
                     st.markdown("---")
                     st.markdown("""
                     <div class="section-header">
                         <span style="font-size: 1.3rem;"> </span>
-                        <h3 style="margin: 0;">Row-Level P&L Forecast</h3>
+                        <h3 style="margin: 0;">Deal-level forecast</h3>
                     </div>
                     """, unsafe_allow_html=True)
 
@@ -1923,7 +1923,7 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                     st.markdown("""
                     <div class="section-header">
                         <span style="font-size: 1.3rem;"> </span>
-                        <h3 style="margin: 0;">Row-Level P&L Forecast</h3>
+                        <h3 style="margin: 0;">Deal-level forecast</h3>
                     </div>
                     """, unsafe_allow_html=True)
                     st.caption("Add deals to forecast P&L. The system analyses historical buyer, supplier, seasonal, and monthly patterns to generate accurate forecasts.")
@@ -2406,7 +2406,7 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                         deals = st.session_state.row_forecast_deals
                         if deals:
                             st.markdown("---")
-                            st.write(f"**Row-Level P&L Forecast ({len(deals)} Deal{'s' if len(deals) != 1 else ''})**")
+                            st.write(f"**Deal-level forecast ({len(deals)} Deal{'s' if len(deals) != 1 else ''})**")
 
                             forecast_rows = []
                             for d in deals:
@@ -2566,7 +2566,7 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                         else:
                             st.info("Add deals above to see the forecasted P&L.")
                     else:
-                        st.info("Upload transaction data to use the Row-Level P&L Forecast.")
+                        st.info("Upload transaction data to use the Deal-level forecast.")
 
                     st.markdown("---")
                     st.markdown("""
