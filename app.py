@@ -1926,7 +1926,7 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                         <h3 style="margin: 0;">  Single Deal P&L Forecast</h3>
                     </div>
                     """, unsafe_allow_html=True)
-                    st.caption("Input a deal to forecast its transaction-level P&L. Season (on/off) affects S&D, finance cost and procurement ratios.")
+                    st.caption("Input a deal to forecast its transaction-level P&L. Enter price per KG and quantity — revenue is auto-calculated. Season (on/off) affects S&D, finance cost and procurement ratios.")
 
                     if st.session_state.txn_data is not None:
                         txn_data = st.session_state.txn_data
@@ -1964,6 +1964,32 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                     return val
                             return 0
 
+                        # Rejection rate helpers
+                        def calc_rejection_from_df(df):
+                            if "Procure_Quantity_Kg" not in df.columns or "Receive_Quantity_KG" not in df.columns:
+                                return 0, 0, 0, 0
+                            n_total = df.shape[0]
+                            if n_total == 0:
+                                return 0, 0, 0, 0
+                            tot_proc = float(pd.to_numeric(df["Procure_Quantity_Kg"], errors="coerce").fillna(0).sum())
+                            tot_recv = float(pd.to_numeric(df["Receive_Quantity_KG"], errors="coerce").fillna(0).sum())
+                            if "Status" in df.columns:
+                                n_full_rej = int((df["Status"].astype(str).str.upper().str.strip() == "REJECT").sum())
+                            else:
+                                n_full_rej = 0
+                            full_reject_pct = (n_full_rej / n_total * 100) if n_total > 0 else 0
+                            partial_reject_pct = ((tot_proc - tot_recv) / tot_proc * 100) if tot_proc > 0 else 0
+                            avg_reject_pct = (full_reject_pct + partial_reject_pct) / 2
+                            return full_reject_pct, partial_reject_pct, avg_reject_pct, n_total
+
+                        def get_buyer_rejection(buyer_name):
+                            bh = txn_data[txn_data[buyer_col_t] == buyer_name]
+                            full_r, partial_r, avg_r, n = calc_rejection_from_df(bh)
+                            if n == 0:
+                                # Fallback: company-wide
+                                return calc_rejection_from_df(txn_data)
+                            return full_r, partial_r, avg_r, n
+
                         with st.form("deal_forecast_form"):
                             c1, c2, c3 = st.columns(3)
                             with c1:
@@ -1973,20 +1999,34 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                             with c3:
                                 deal_supplier = st.selectbox("Supplier", ["(Any)"] + all_suppliers)
 
-                            c4, c5 = st.columns(2)
+                            c4, c5, c6 = st.columns(3)
                             with c4:
-                                deal_sales = st.number_input("Sales Amount (BDT)", min_value=0.0, step=100000.0, format="%.0f")
+                                deal_price_kg = st.number_input("Price per KG (BDT)", min_value=0.0, step=1.0, format="%.2f")
                             with c5:
-                                deal_qty = st.number_input("Receive Quantity (KG)", min_value=0.0, step=100.0, format="%.0f")
+                                deal_qty = st.number_input("Procure Quantity (KG)", min_value=0.0, step=100.0, format="%.0f")
+                            with c6:
+                                # Auto-fill buyer's historical avg rejection
+                                full_r_temp, partial_r_temp, avg_r_temp, _ = get_buyer_rejection(deal_buyer)
+                                deal_rejection = st.number_input(
+                                    "Rejection Rate (%)",
+                                    min_value=0.0, max_value=100.0, step=0.01, format="%.2f",
+                                    value=round(avg_r_temp, 2) if avg_r_temp > 0 else 0.0,
+                                    help=f"Full: {full_r_temp:.2f}% | Partial: {partial_r_temp:.2f}% | Avg: {avg_r_temp:.2f}%"
+                                )
 
                             submitted = st.form_submit_button("Forecast Deal P&L", type="primary")
 
                         if submitted:
-                            if deal_sales <= 0:
-                                st.warning("Please enter a sales amount greater than 0.")
+                            if deal_qty <= 0 or deal_price_kg <= 0:
+                                st.warning("Please enter quantity and price per KG greater than 0.")
                             else:
                                 # Determine season from deal date
                                 season = get_season_from_date(deal_date)
+
+                                # Calculate quantities
+                                deal_recv_qty = deal_qty * (1 - deal_rejection / 100)
+                                deal_rejected_qty = deal_qty - deal_recv_qty
+                                deal_sales = deal_recv_qty * deal_price_kg  # Sales revenue from received qty
 
                                 # Get historical ratios for this buyer, split by season
                                 buyer_hist = txn_data[txn_data[buyer_col_t] == deal_buyer]
@@ -2105,48 +2145,106 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                     st.success(f"**Forecast for {deal_buyer}** — {deal_date.strftime('%b %d, %Y')} | {season_badge}")
                                     if deal_supplier != "(Any)":
                                         st.caption(f"Supplier: {deal_supplier}")
-                                    if deal_qty > 0:
-                                        st.caption(f"Quantity: {deal_qty:,.0f} KG | Price/kg: BDT {deal_sales / deal_qty:,.2f}")
+
+                                    # Quantity & Price summary
+                                    q1, q2, q3, q4 = st.columns(4)
+                                    with q1:
+                                        st.metric("Procure Qty", f"{deal_qty:,.0f} KG")
+                                    with q2:
+                                        st.metric("Forecast Reject", f"{deal_rejection:.2f}%")
+                                    with q3:
+                                        st.metric("Receive Qty", f"{deal_recv_qty:,.0f} KG")
+                                    with q4:
+                                        st.metric("Rejected KG", f"{deal_rejected_qty:,.0f} KG")
+
+                                    p1, p2, p3, p4 = st.columns(4)
+                                    with p1:
+                                        st.metric("Price/KG", f"BDT {deal_price_kg:,.2f}")
+                                    with p2:
+                                        st.metric("Sales Revenue", deal_amt(deal_sales))
+                                    with p3:
+                                        wc_val = deal_qty * deal_price_kg
+                                        st.metric("Working Capital", deal_amt(wc_val))
+                                    with p4:
+                                        rej_value = deal_rejected_qty * deal_price_kg
+                                        st.metric("Rejected Value", deal_amt(rej_value))
 
                                     # Debug: show season data counts
                                     on_count = len(buyer_hist[buyer_hist["_season"] == "On-Season"])
-                                    off_count = len(buyer_hist[buyer_hist["_season"] == "Off-Season"])
-                                    with st.expander("  Season Data Info", expanded=False):
+                                    off_count = len(buyer_hist[buyer_hist["_season"] != "On-Season"])
+                                    full_r, partial_r, avg_r, n_buyer = get_buyer_rejection(deal_buyer)
+                                    with st.expander("  Data Sources & Ratios", expanded=False):
                                         st.write(f"On-Season transactions: {on_count} | Off-Season transactions: {off_count}")
+                                        st.write(f"Buyer rejection data: {n_buyer} transactions")
+                                        st.write(f"  Full Reject: {full_r:.2f}% | Partial Reject: {partial_r:.2f}% | Avg: {avg_r:.2f}%")
                                         st.write(f"COGS source: {cogs_source_label} | S&D source: {sd_source_label}")
                                         st.write(f"COGS %: {cogs_pct:.1f}% | S&D %: {sd_pct:.1f}% | Finance %: {fin_pct:.2f}% | Admin %: {admin_pct:.1f}%")
 
+                                    # Full P&L Forecast Table
                                     forecast_data = pd.DataFrame({
                                         "Line Item": [
-                                            "Sales Revenue", "COGS", "Gross Profit",
-                                            "Total S&D", "Profit after S&D",
-                                            "Admin & General", "Net Operating Profit",
-                                            "Finance Cost", "Net Profit",
+                                            "Procure Quantity", "Rejection Rate", "Receive Quantity", "Rejected Quantity",
+                                            "", "Sales Revenue", "COGS", "Gross Profit", "Gross Margin",
+                                            "", "Total S&D", "Profit after S&D", "CM3 Margin",
+                                            "", "Admin & General", "Net Operating Profit", "NOP Margin",
+                                            "", "Finance Cost", "Net Profit", "NP Margin",
                                         ],
-                                        "Amount (Cr)": [
+                                        "Amount": [
+                                            f"{deal_qty:,.0f} KG", f"{deal_rejection:.2f}%",
+                                            f"{deal_recv_qty:,.0f} KG", f"{deal_rejected_qty:,.0f} KG",
+                                            "",
                                             deal_amt(deal_sales), deal_amt(deal_cogs), deal_amt(deal_gp),
+                                            deal_pct(deal_gp, deal_sales),
+                                            "",
                                             deal_amt(deal_sd), deal_amt(deal_profit_after_sd),
+                                            deal_pct(deal_profit_after_sd, deal_sales),
+                                            "",
                                             deal_amt(deal_admin), deal_amt(deal_nop),
+                                            deal_pct(deal_nop, deal_sales),
+                                            "",
                                             deal_amt(deal_finance), deal_amt(deal_np),
+                                            deal_pct(deal_np, deal_sales),
                                         ],
                                         "% of Sales": [
-                                            "100.0%", deal_pct(deal_cogs, deal_sales), deal_pct(deal_gp, deal_sales),
-                                            deal_pct(deal_sd, deal_sales), deal_pct(deal_profit_after_sd, deal_sales),
-                                            deal_pct(deal_admin, deal_sales), deal_pct(deal_nop, deal_sales),
-                                            deal_pct(deal_finance, deal_sales), deal_pct(deal_np, deal_sales),
+                                            "", "", "", "",
+                                            "",
+                                            "100.0%", deal_pct(deal_cogs, deal_sales), deal_pct(deal_gp, deal_sales), "",
+                                            "",
+                                            deal_pct(deal_sd, deal_sales), deal_pct(deal_profit_after_sd, deal_sales), "",
+                                            "",
+                                            deal_pct(deal_admin, deal_sales), deal_pct(deal_nop, deal_sales), "",
+                                            "",
+                                            deal_pct(deal_finance, deal_sales), deal_pct(deal_np, deal_sales), "",
                                         ],
                                         "Source": [
-                                            "Input",
-                                            f"COGS: {cogs_source_label}", "",
-                                            f"S&D: {sd_source_label}", "",
-                                            f"Company-wide ({admin_pct:.1f}%)", "",
-                                            f"{season} buyer-specific ({fin_pct:.2f}%)", "",
+                                            "Input", "Historical forecast", "Calculated", "Calculated",
+                                            "",
+                                            "Price/KG × Receive Qty",
+                                            f"COGS: {cogs_source_label}", "", "",
+                                            "",
+                                            f"S&D: {sd_source_label}", "", "",
+                                            "",
+                                            f"Company-wide ({admin_pct:.1f}%)", "", "",
+                                            "",
+                                            f"{season} buyer-specific ({fin_pct:.2f}%)", "", "",
                                         ],
                                     })
                                     st.dataframe(forecast_data, use_container_width=True, hide_index=True)
 
+                                    # Decision summary
+                                    st.markdown("---")
+                                    if deal_np < 0:
+                                        st.error(f"  **Deal is loss-making** at NP {deal_amt(deal_np)}. Consider increasing price, reducing rejection, or cutting COGS/S&D.")
+                                    elif deal_np < (deal_sales * 0.02):
+                                        st.warning(f"  **Thin margin** — NP {deal_amt(deal_np)} ({deal_pct(deal_np, deal_sales)} of sales). Review pricing or cost structure.")
+                                    else:
+                                        st.success(f"  **Deal is profitable** — NP {deal_amt(deal_np)} ({deal_pct(deal_np, deal_sales)} of sales).")
+
                                     with st.expander("  Ratio Assumptions"):
                                         st.write(f"**Season:** {season} — On-Season: Nov, Dec, Jan, Apr, May | Off-Season: Feb, Mar, Jun–Oct")
+                                        st.write(f"**Price/KG:** BDT {deal_price_kg:,.2f}")
+                                        st.write(f"**Procure Qty:** {deal_qty:,.0f} KG → Receive: {deal_recv_qty:,.0f} KG (reject {deal_rejection:.2f}%)")
+                                        st.write(f"**Sales Revenue:** {deal_recv_qty:,.0f} KG × BDT {deal_price_kg:,.2f} = {deal_amt(deal_sales)}")
                                         st.write(f"**COGS %:** {cogs_pct:.1f}% (source: {cogs_source_label})")
                                         st.write(f"**S&D %:** {sd_pct:.1f}% (source: {sd_source_label})")
                                         st.write(f"**Admin %:** {admin_pct:.1f}% (company-wide)")
@@ -2613,18 +2711,18 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                 st.info("Upload budget file with revenue and salary data to calculate.")
 
             # ═══════════════════════════════════════════════════════════════
-            # DEAL PLANNER — Forecast minimum GP/NOP/NP & WC per deal
+            # ROW-LEVEL P&L FORECAST — Per-deal forecast with full P&L
             # ═══════════════════════════════════════════════════════════════
             st.markdown("---")
             st.markdown("""
             <div class="section-header">
                 <span style="font-size: 1.3rem;"> </span>
-                <h3 style="margin: 0;">  Deal Planner</h3>
+                <h3 style="margin: 0;">Row-Level P&L Forecast</h3>
             </div>
             """, unsafe_allow_html=True)
-            st.caption("Add deals to forecast GP, NOP, NP, working capital and salary coverage for each.")
+            st.caption("Add deals to generate a per-deal P&L forecast with all heads.")
 
-            # Ensure admin_pct and salary_margin are available for Deal Planner
+            # Ensure admin_pct and salary_margin are available
             if "admin_pct" not in dir() or admin_pct is None:
                 admin_pct = (period["sga"] / total_rev * 100) if total_rev > 0 and "sga" in period else 0
             if "salary_margin" not in dir() or salary_margin is None:
@@ -2643,13 +2741,7 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                         if col != "Status":
                             txn_data[col] = pd.to_numeric(txn_data[col], errors="coerce").fillna(0)
 
-                # Overall rejection stats (all transactions) — compute first for fallback
                 def calc_rejection_from_df(df):
-                    """Calculate rejection rates from a dataframe of transactions.
-                    Full Reject = count(Status=REJECT) / total rows
-                    Partial Reject = (sum(procure) - sum(receive)) / sum(procure)
-                    Avg = (Full + Partial) / 2
-                    """
                     if "Procure_Quantity_Kg" not in df.columns or "Receive_Quantity_KG" not in df.columns:
                         return 0, 0, 0, 0, 0, 0
                     n_total = df.shape[0]
@@ -2657,29 +2749,24 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                         return 0, 0, 0, 0, 0, 0
                     tot_proc = float(pd.to_numeric(df["Procure_Quantity_Kg"], errors="coerce").fillna(0).sum())
                     tot_recv = float(pd.to_numeric(df["Receive_Quantity_KG"], errors="coerce").fillna(0).sum())
-                    # Full reject rate
                     if "Status" in df.columns:
                         n_full_rej = int((df["Status"].astype(str).str.upper().str.strip() == "REJECT").sum())
                     else:
                         n_full_rej = 0
                     full_reject_pct = (n_full_rej / n_total * 100) if n_total > 0 else 0
-                    # Partial reject rate
                     partial_reject_pct = ((tot_proc - tot_recv) / tot_proc * 100) if tot_proc > 0 else 0
-                    # Average
                     avg_reject_pct = (full_reject_pct + partial_reject_pct) / 2
                     return full_reject_pct, partial_reject_pct, avg_reject_pct, tot_proc, tot_recv, n_total
 
                 overall_full, overall_partial, overall_avg, overall_proc, overall_recv, overall_n = calc_rejection_from_df(txn_data)
 
                 def get_buyer_rejection(buyer_name):
-                    """Return rejection stats for a specific buyer, with fallback to company-wide."""
                     bh = txn_data[txn_data[buyer_col_t] == buyer_name]
                     full_r, partial_r, avg_r, tp, tn, n = calc_rejection_from_df(bh)
                     if n == 0:
                         return overall_full, overall_partial, overall_avg, 0, 0, 0
                     return full_r, partial_r, avg_r, tp, tn, n
 
-                # Get historical COGS% and S&D% for each buyer
                 def get_buyer_ratios(buyer_name):
                     bh = txn_data[txn_data[buyer_col_t] == buyer_name].copy()
                     for col in ["Sales/Revenue", "Cogs", "Total Selling Opex(F)"]:
@@ -2690,83 +2777,37 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                     sd = float(bh["Total Selling Opex(F)"].sum()) if "Total Selling Opex(F)" in bh.columns else 0
                     cogs_pct = (c / s * 100) if s > 0 else 0
                     sd_pct = (sd / s * 100) if s > 0 else 0
-                    # If buyer has no data, use company-wide
                     if cogs_pct == 0 and total_rev > 0:
                         cogs_pct = period["cogs"] / total_rev * 100 if "cogs" in period else 0
                     if sd_pct == 0 and total_rev > 0:
                         sd_pct = (period["selling_opex"] + period["marketing"]) / total_rev * 100 if "selling_opex" in period else 0
                     return cogs_pct, sd_pct
 
-                # Get finance % for buyer by season
                 def get_buyer_fin_pct(buyer_name, deal_date):
                     mon = deal_date.month
                     season = "On-Season" if mon in [11, 12, 1, 4, 5] else "Off-Season"
                     return get_buyer_finance_pct(buyer_name, season) * 100
 
-                # Initialize deals in session state
-                if "deal_planner_deals" not in st.session_state:
-                    st.session_state.deal_planner_deals = []
+                # Initialize deals
+                if "row_forecast_deals" not in st.session_state:
+                    st.session_state.row_forecast_deals = []
 
-                # ── Rejection Rate Forecast ──
-                st.write("**Forecasted Rejection Rates (from historical data):**")
-                rr_buyers = []
-                rr_full = []
-                rr_partial = []
-                rr_avg = []
-                rr_samples = []
-                for b in all_buyers[:30]:
-                    full_r, partial_r, avg_r, tp, tn, n = get_buyer_rejection(b)
-                    if n > 0:
-                        rr_buyers.append(b)
-                        rr_full.append(full_r)
-                        rr_partial.append(partial_r)
-                        rr_avg.append(avg_r)
-                        rr_samples.append(n)
-                if rr_buyers:
-                    rr_df = pd.DataFrame({
-                        "Buyer": rr_buyers,
-                        "Full Reject %": rr_full,
-                        "Partial Reject %": rr_partial,
-                        "Avg Reject %": rr_avg,
-                        "Txn Count": rr_samples,
-                    })
-                    rr_df = rr_df.sort_values("Avg Reject %", ascending=False).head(10)
-                    st.dataframe(rr_df.style.format({
-                        "Full Reject %": "{:.2f}%",
-                        "Partial Reject %": "{:.2f}%",
-                        "Avg Reject %": "{:.2f}%",
-                    }), use_container_width=True, hide_index=True)
-                    st.caption("**Full Reject** = count(Status=REJECT) / total rows | **Partial Reject** = (sum(procure) - sum(receive)) / sum(procure) | **Avg** = (Full + Partial) / 2")
-                    st.caption(f"Overall ({overall_n} txns): Full **{overall_full:.2f}%** | Partial **{overall_partial:.2f}%** | Avg **{overall_avg:.2f}%**")
-                else:
-                    st.caption(f"No rejection data. Overall ({overall_n} txns): Full **{overall_full:.2f}%** | Partial **{overall_partial:.2f}%** | Avg **{overall_avg:.2f}%**")
-
-                # Input form
-                with st.form("deal_planner_form"):
+                # ── Input Form ──
+                with st.form("row_forecast_form"):
                     st.write("**Add New Deal**")
                     c1, c2, c3 = st.columns(3)
                     with c1:
-                        dp_buyer = st.selectbox("Buyer", all_buyers, key="dp_buyer")
+                        dp_buyer = st.selectbox("Buyer Name", all_buyers, key="rf_buyer")
                     with c2:
-                        dp_supplier = st.selectbox("Supplier", ["(Any)"] + all_suppliers, key="dp_supplier")
+                        dp_date = st.date_input("Deal Date", key="rf_date")
                     with c3:
-                        dp_date = st.date_input("Deal Date", key="dp_date")
+                        dp_supplier = st.selectbox("Supplier Name", ["(Optional)"] + all_suppliers, key="rf_supplier")
 
-                    c4, c5, c6 = st.columns(3)
+                    c4, c5 = st.columns(2)
                     with c4:
-                        dp_proc_qty = st.number_input("Procure Qty (KG)", min_value=0.0, step=100.0, format="%.0f", key="dp_proc_qty")
+                        dp_proc_qty = st.number_input("Quantity Ordered (KG)", min_value=0.0, step=100.0, format="%.0f", key="rf_qty")
                     with c5:
-                        dp_price_kg = st.number_input("Price per KG (BDT)", min_value=0.0, step=1.0, format="%.2f", key="dp_price_kg")
-                    with c6:
-                        # Auto-select buyer's historical average rejection rate
-                        full_r, partial_r, avg_r, _, _, _ = get_buyer_rejection(dp_buyer)
-                        dp_rejection = st.number_input(
-                            "Rejection Rate (%)",
-                            min_value=0.0, max_value=100.0, step=0.01, format="%.2f",
-                            value=round(avg_r, 2) if avg_r > 0 else 0.0,
-                            key="dp_rejection",
-                            help=f"Full: {full_r:.2f}% | Partial: {partial_r:.2f}% | Avg: {avg_r:.2f}%"
-                        )
+                        dp_price_kg = st.number_input("Price per KG (BDT)", min_value=0.0, step=1.0, format="%.2f", key="rf_price")
 
                     add_col, clear_col = st.columns([1, 1])
                     with add_col:
@@ -2774,216 +2815,174 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                     with clear_col:
                         clear_all = st.form_submit_button("  Clear All Deals")
 
-                # Summary of all deals
-                deals = st.session_state.deal_planner_deals
-                if deals:
-                    total_proc = sum(d["proc_qty"] for d in deals)
-                    total_recv = sum(d["recv_qty"] for d in deals)
-                    total_rejected = total_proc - total_recv
-                    total_rev = sum(d["revenue"] for d in deals)
-                    total_wc = sum(d["wc"] for d in deals)
-                    avg_price_kg = (total_rev / total_recv) if total_recv > 0 else 0
-                    total_rej_value = total_rejected * avg_price_kg
-                    avg_rej = (total_rejected / total_proc * 100) if total_proc > 0 else 0
-
-                    st.markdown("---")
-                    st.write(f"**Portfolio Summary ({len(deals)} Deal{'s' if len(deals) != 1 else ''}):**")
-                    s1, s2, s3, s4 = st.columns(4)
-                    with s1:
-                        st.metric("Receive Qty", f"{total_recv:,.0f} KG")
-                    with s2:
-                        st.metric("Sales Revenue", fmt_crore(total_rev))
-                    with s3:
-                        st.metric("Rejected KG", f"{total_rejected:,.0f} KG")
-                    with s4:
-                        st.metric("Rejected Value", fmt_crore(total_rej_value))
-
                 if clear_all:
-                    st.session_state.deal_planner_deals = []
+                    st.session_state.row_forecast_deals = []
                     st.rerun()
 
                 if add_deal and dp_proc_qty > 0 and dp_price_kg > 0:
-                    # Forecast: receive qty from rejection, sales revenue from receive qty
-                    dp_recv_qty = dp_proc_qty * (1 - dp_rejection / 100)
-                    dp_revenue = dp_recv_qty * dp_price_kg
-                    rejection_rate = dp_rejection
-                    full_r, partial_r, avg_r, _, _, _ = get_buyer_rejection(dp_buyer)
-
+                    # Get buyer-specific ratios
                     cogs_pct, sd_pct = get_buyer_ratios(dp_buyer)
                     fin_pct = get_buyer_fin_pct(dp_buyer, dp_date)
+                    full_r, partial_r, avg_r, _, _, _ = get_buyer_rejection(dp_buyer)
                     season = "On-Season" if dp_date.month in [11, 12, 1, 4, 5] else "Off-Season"
+                    rejection_rate = avg_r
 
+                    # Calculate P&L
+                    dp_recv_qty = dp_proc_qty * (1 - rejection_rate / 100)
+                    dp_revenue = dp_recv_qty * dp_price_kg
                     deal_cogs = dp_revenue * cogs_pct / 100
                     deal_gp = dp_revenue - deal_cogs
                     deal_sd = dp_revenue * sd_pct / 100
-                    deal_nop = deal_gp - deal_sd - (dp_revenue * admin_pct / 100)
+                    deal_admin = dp_revenue * admin_pct / 100
+                    deal_nop = deal_gp - deal_sd - deal_admin
                     deal_finance = dp_revenue * fin_pct / 100
                     deal_np = deal_nop - deal_finance
-                    deal_salary_alloc = dp_revenue * salary_margin / 100 if salary_margin else 0
-                    deal_wc = dp_proc_qty * dp_price_kg  # working capital = full procurement cost
+                    deal_wc = dp_proc_qty * dp_price_kg
 
                     deal_entry = {
                         "buyer": dp_buyer,
-                        "supplier": dp_supplier,
-                        "date": dp_date.strftime("%b %d, %Y"),
+                        "supplier": dp_supplier if dp_supplier != "(Optional)" else "",
+                        "date": dp_date,
+                        "month": dp_date.strftime("%b-%y"),
                         "season": season,
                         "proc_qty": dp_proc_qty,
-                        "rejection_rate": rejection_rate,
-                        "full_reject_pct": full_r,
-                        "partial_reject_pct": partial_r,
-                        "avg_reject_pct": avg_r,
                         "recv_qty": dp_recv_qty,
                         "price_kg": dp_price_kg,
+                        "rejection_rate": rejection_rate,
                         "revenue": dp_revenue,
                         "cogs_pct": cogs_pct,
-                        "sd_pct": sd_pct,
-                        "fin_pct": fin_pct,
                         "cogs": deal_cogs,
                         "gp": deal_gp,
+                        "gp_pct": (deal_gp / dp_revenue * 100) if dp_revenue > 0 else 0,
+                        "sd_pct": sd_pct,
                         "sd": deal_sd,
-                        "admin": dp_revenue * admin_pct / 100,
+                        "admin_pct": admin_pct,
+                        "admin": deal_admin,
                         "nop": deal_nop,
+                        "nop_pct": (deal_nop / dp_revenue * 100) if dp_revenue > 0 else 0,
+                        "fin_pct": fin_pct,
                         "finance": deal_finance,
                         "np": deal_np,
+                        "np_pct": (deal_np / dp_revenue * 100) if dp_revenue > 0 else 0,
                         "wc": deal_wc,
                     }
-                    st.session_state.deal_planner_deals.append(deal_entry)
+                    st.session_state.row_forecast_deals.append(deal_entry)
                     st.rerun()
 
-                # Display deals
-                deals = st.session_state.deal_planner_deals
+                # ── Display Forecast Table ──
+                deals = st.session_state.row_forecast_deals
                 if deals:
                     st.markdown("---")
-                    st.write(f"**{len(deals)} Deal(s) Added**")
+                    st.write(f"**Row-Level P&L Forecast ({len(deals)} Deal{'s' if len(deals) != 1 else ''})**")
 
-                    deal_rows = []
-                    for i, d in enumerate(deals):
-                        deal_rows.append({
-                            "#": i + 1,
+                    forecast_rows = []
+                    for d in deals:
+                        forecast_rows.append({
+                            "Month": d["month"],
                             "Buyer": d["buyer"],
-                            "Date": d["date"],
-                            "Season": d["season"],
-                            "Procure (KG)": f"{d['proc_qty']:,.0f}",
-                            "Full Reject %": f"{d.get('full_reject_pct', 0):.2f}%",
-                            "Partial Reject %": f"{d.get('partial_reject_pct', 0):.2f}%",
-                            "Avg Reject %": f"{d.get('avg_reject_pct', 0):.2f}%",
-                            "Forecast Reject %": f"{d['rejection_rate']:.2f}%",
-                            "Receive (KG)": f"{d['recv_qty']:,.0f}",
+                            "Supplier": d["supplier"],
+                            "Qty (KG)": f"{d['proc_qty']:,.0f}",
                             "Price/KG": f"{d['price_kg']:,.0f}",
-                            "Sales Rev (Cr)": fmt_crore(d["revenue"]),
-                            "GP (Cr)": fmt_crore(d["gp"]),
-                            "NOP (Cr)": fmt_crore(d["nop"]),
-                            "NP (Cr)": fmt_crore(d["np"]),
-                            "WC (Cr)": fmt_crore(d["wc"]),
+                            "Reject %": f"{d['rejection_rate']:.2f}%",
+                            "Sales": fmt_crore(d["revenue"]),
+                            "COGS": fmt_crore(d["cogs"]),
+                            "COGS %": f"{d['cogs_pct']:.1f}%",
+                            "GP": fmt_crore(d["gp"]),
+                            "GP %": f"{d['gp_pct']:.1f}%",
+                            "S&D": fmt_crore(d["sd"]),
+                            "S&D %": f"{d['sd_pct']:.1f}%",
+                            "Admin": fmt_crore(d["admin"]),
+                            "Admin %": f"{d['admin_pct']:.1f}%",
+                            "Finance": fmt_crore(d["finance"]),
+                            "Finance %": f"{d['fin_pct']:.1f}%",
+                            "NOP": fmt_crore(d["nop"]),
+                            "NOP %": f"{d['nop_pct']:.1f}%",
+                            "NP": fmt_crore(d["np"]),
+                            "NP %": f"{d['np_pct']:.1f}%",
+                            "WC": fmt_crore(d["wc"]),
                         })
-                    deals_df = pd.DataFrame(deal_rows)
-                    st.dataframe(deals_df, use_container_width=True, hide_index=True)
 
-                    # Summary
-                    total_deal_rev = sum(d["revenue"] for d in deals)
-                    total_deal_gp = sum(d["gp"] for d in deals)
-                    total_deal_nop = sum(d["nop"] for d in deals)
-                    total_deal_np = sum(d["np"] for d in deals)
-                    total_deal_wc = sum(d["wc"] for d in deals)
-                    total_deal_sd = sum(d["sd"] for d in deals)
+                    # Totals row
+                    t_rev = sum(d["revenue"] for d in deals)
+                    t_cogs = sum(d["cogs"] for d in deals)
+                    t_gp = sum(d["gp"] for d in deals)
+                    t_sd = sum(d["sd"] for d in deals)
+                    t_admin = sum(d["admin"] for d in deals)
+                    t_nop = sum(d["nop"] for d in deals)
+                    t_fin = sum(d["finance"] for d in deals)
+                    t_np = sum(d["np"] for d in deals)
+                    t_wc = sum(d["wc"] for d in deals)
 
-                    st.write("**P&L Summary:**")
-                    m1, m2, m3, m4, m5, m6 = st.columns(6)
-                    with m1:
-                        st.metric("Total Revenue", fmt_crore(total_deal_rev))
-                    with m2:
-                        st.metric("Total GP", fmt_crore(total_deal_gp))
-                        gp_m = (total_deal_gp / total_deal_rev * 100) if total_deal_rev > 0 else 0
-                        st.caption(f"{gp_m:.1f}% margin")
-                    with m3:
-                        st.metric("Total S&D", fmt_crore(total_deal_sd))
-                    with m4:
-                        st.metric("Total NOP", fmt_crore(total_deal_nop))
-                        nop_m = (total_deal_nop / total_deal_rev * 100) if total_deal_rev > 0 else 0
-                        st.caption(f"{nop_m:.1f}% margin")
-                    with m5:
-                        st.metric("Total NP", fmt_crore(total_deal_np))
-                        np_m = (total_deal_np / total_deal_rev * 100) if total_deal_rev > 0 else 0
-                        st.caption(f"{np_m:.1f}% margin")
-                    with m6:
-                        st.metric("Total WC Needed", fmt_crore(total_deal_wc))
+                    forecast_rows.append({
+                        "Month": "TOTAL",
+                        "Buyer": "",
+                        "Supplier": "",
+                        "Qty (KG)": f"{sum(d['proc_qty'] for d in deals):,.0f}",
+                        "Price/KG": "",
+                        "Reject %": "",
+                        "Sales": fmt_crore(t_rev),
+                        "COGS": fmt_crore(t_cogs),
+                        "COGS %": f"{t_cogs/t_rev*100:.1f}%" if t_rev > 0 else "0.0%",
+                        "GP": fmt_crore(t_gp),
+                        "GP %": f"{t_gp/t_rev*100:.1f}%" if t_rev > 0 else "0.0%",
+                        "S&D": fmt_crore(t_sd),
+                        "S&D %": f"{t_sd/t_rev*100:.1f}%" if t_rev > 0 else "0.0%",
+                        "Admin": fmt_crore(t_admin),
+                        "Admin %": f"{t_admin/t_rev*100:.1f}%" if t_rev > 0 else "0.0%",
+                        "Finance": fmt_crore(t_fin),
+                        "Finance %": f"{t_fin/t_rev*100:.1f}%" if t_rev > 0 else "0.0%",
+                        "NOP": fmt_crore(t_nop),
+                        "NOP %": f"{t_nop/t_rev*100:.1f}%" if t_rev > 0 else "0.0%",
+                        "NP": fmt_crore(t_np),
+                        "NP %": f"{t_np/t_rev*100:.1f}%" if t_rev > 0 else "0.0%",
+                        "WC": fmt_crore(t_wc),
+                    })
 
-                    # Salary coverage insight
+                    forecast_df = pd.DataFrame(forecast_rows)
+                    st.dataframe(forecast_df, use_container_width=True, hide_index=True)
+
+                    # KPIs
+                    st.write("**Summary:**")
+                    s1, s2, s3, s4, s5 = st.columns(5)
+                    with s1:
+                        st.metric("Total Revenue", fmt_crore(t_rev))
+                    with s2:
+                        st.metric("Total GP", fmt_crore(t_gp))
+                        st.caption(f"{t_gp/t_rev*100:.1f}%" if t_rev > 0 else "0%")
+                    with s3:
+                        st.metric("Total NOP", fmt_crore(t_nop))
+                        st.caption(f"{t_nop/t_rev*100:.1f}%" if t_rev > 0 else "0%")
+                    with s4:
+                        st.metric("Total NP", fmt_crore(t_np))
+                        st.caption(f"{t_np/t_rev*100:.1f}%" if t_rev > 0 else "0%")
+                    with s5:
+                        st.metric("Total WC", fmt_crore(t_wc))
+
+                    # Salary coverage
                     if total_salary > 0:
                         st.markdown("---")
                         st.write("**Salary Coverage Insight:**")
-                        np_gap_total = total_salary - total_deal_np
-                        if total_deal_np >= total_salary:
-                            st.success(f"**NP {fmt_crore(total_deal_np)} covers salary {fmt_crore(total_salary)}.** Surplus: {fmt_crore(total_deal_np - total_salary)}")
+                        if t_np >= total_salary:
+                            st.success(f"**NP {fmt_crore(t_np)} covers salary {fmt_crore(total_salary)}.** Surplus: {fmt_crore(t_np - total_salary)}")
                         else:
-                            st.warning(f"**NP {fmt_crore(total_deal_np)} is short of salary {fmt_crore(total_salary)}.** Gap: {fmt_crore(np_gap_total)}")
-                            rev_needed = np_gap_total / (total_deal_np / total_deal_rev) if total_deal_np > 0 else 0
-                            if rev_needed > 0:
-                                st.info(f"Additional revenue needed (at current NP margin): **{fmt_crore(rev_needed)}**")
+                            gap = total_salary - t_np
+                            st.warning(f"**NP {fmt_crore(t_np)} is short of salary {fmt_crore(total_salary)}.** Gap: {fmt_crore(gap)}")
 
-                    # Insights per deal
+                    # Remove individual deals
                     st.markdown("---")
-                    st.write("**Deal Insights:**")
+                    st.write("**Remove Deal:**")
                     for i, d in enumerate(deals):
-                        rejected_kg = d['proc_qty'] - d['recv_qty']
-                        with st.expander(f"Deal #{i+1}: {d['buyer']} — {d['date']} | Rev: {fmt_crore(d['revenue'])} | NP: {fmt_crore(d['np'])} | WC: {fmt_crore(d['wc'])}"):
-                            ic1, ic2, ic3, ic4 = st.columns(4)
-                            with ic1:
-                                st.metric("GP Margin", f"{d['gp']/d['revenue']*100:.1f}%" if d['revenue'] > 0 else "0%")
-                            with ic2:
-                                st.metric("NP Margin", f"{d['np']/d['revenue']*100:.1f}%" if d['revenue'] > 0 else "0%")
-                            with ic3:
-                                wc_roi = (d['np'] / d['wc'] * 100) if d['wc'] > 0 else 0
-                                st.metric("ROIC", f"{wc_roi:.1f}%")
-                            with ic4:
-                                st.metric("WC / Revenue", f"{d['wc']/d['revenue']*100:.1f}%" if d['revenue'] > 0 else "0%")
-
-                            ic5, ic6, ic7, ic8 = st.columns(4)
-                            with ic5:
-                                st.metric("Procure Qty", f"{d['proc_qty']:,.0f} KG")
-                            with ic6:
-                                st.metric("Forecast Reject", f"{d['rejection_rate']:.2f}%")
-                            with ic7:
-                                st.metric("Receive Qty", f"{d['recv_qty']:,.0f} KG")
-                            with ic8:
-                                st.metric("Rejected KG", f"{rejected_kg:,.0f} KG")
-
-                            ic9, ic10, ic11, ic12 = st.columns(4)
-                            with ic9:
-                                st.metric("Full Reject %", f"{d.get('full_reject_pct', 0):.2f}%",
-                                           help="count(Status=REJECT) / total rows")
-                            with ic10:
-                                st.metric("Partial Reject %", f"{d.get('partial_reject_pct', 0):.2f}%",
-                                           help="(sum(procure) - sum(receive)) / sum(procure)")
-                            with ic11:
-                                st.metric("Avg Reject %", f"{d.get('avg_reject_pct', 0):.2f}%",
-                                           help="(Full Reject + Partial Reject) / 2")
-                            with ic12:
-                                st.metric("Rejected Value", fmt_crore(d['proc_qty'] * d['price_kg'] - d['revenue']),
-                                           help="Revenue lost to rejection")
-
-                            if d['rejection_rate'] > 10:
-                                st.warning(f"High forecasted rejection ({d['rejection_rate']:.2f}%). {rejected_kg:,.0f} KG / {fmt_crore(d['proc_qty'] * d['price_kg'])} value lost — review supplier quality.")
-                            elif d['rejection_rate'] > 5:
-                                st.info(f"Moderate rejection ({d['rejection_rate']:.2f}%). {rejected_kg:,.0f} KG lost.")
-                            if d.get('full_reject_pct', 0) > 0:
-                                st.caption(f"Historical full rejection rate for {d['buyer']}: {d['full_reject_pct']:.2f}% of all transactions were completely rejected.")
-
-                            if d['np'] < 0:
-                                st.error(f"Deal is **loss-making** at NP {fmt_crore(d['np'])}. Need to increase price, reduce rejection, or cut COGS/S&D.")
-                            elif total_salary > 0 and len(deals) > 0 and d['np'] < total_salary / len(deals):
-                                st.warning(f"Deal contributes **less than its share of salary**. Salary share per deal: {fmt_crore(total_salary / len(deals))}")
-                            else:
-                                st.success(f"Deal contributes positively to salary coverage.")
-
-                            # Remove button
-                            if st.button(f"  Remove Deal #{i+1}", key=f"remove_deal_{i}"):
-                                st.session_state.deal_planner_deals.pop(i)
+                        col_a, col_b = st.columns([4, 1])
+                        with col_a:
+                            st.caption(f"#{i+1} — {d['buyer']} | {d['month']} | {d['proc_qty']:,.0f} KG | Rev: {fmt_crore(d['revenue'])}")
+                        with col_b:
+                            if st.button("Remove", key=f"rm_deal_{i}"):
+                                st.session_state.row_forecast_deals.pop(i)
                                 st.rerun()
                 else:
-                    st.info("Add deals above to see forecasts and insights.")
+                    st.info("Add deals above to see the row-level P&L forecast.")
             else:
-                st.info("Upload transaction data to use the Deal Planner.")
+                st.info("Upload transaction data to use the Row-Level P&L Forecast.")
 
             # ═══════════════════════════════════════════════════════════════
             # SECTION 4: BUYER-WISE MIN NP & SALES TARGETS (from millwise budget)
