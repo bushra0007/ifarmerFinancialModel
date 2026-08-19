@@ -1933,16 +1933,23 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                         buyer_col_t = "Buyer Name" if "Buyer Name" in txn_data.columns else "Buyer_Name"
                         supplier_col_t = "Supplier_Name" if "Supplier_Name" in txn_data.columns else None
                         month_col_t = "Reporting Month" if "Reporting Month" in txn_data.columns else "Reporting_Month"
-                        price_col = "Price/KG" if "Price/KG" in txn_data.columns else None
+                        unit_price_col = "Unit_Price" if "Unit_Price" in txn_data.columns else None
                         qty_proc_col = "Procure_Quantity_Kg" if "Procure_Quantity_Kg" in txn_data.columns else None
                         qty_recv_col = "Receive_Quantity_KG" if "Receive_Quantity_KG" in txn_data.columns else None
 
                         all_buyers = sorted(txn_data[buyer_col_t].dropna().unique().tolist())
                         all_suppliers = sorted(txn_data[supplier_col_t].dropna().unique().tolist()) if supplier_col_t and supplier_col_t in txn_data.columns else []
 
-                        # ── Historical Analysis Engine ──
-                        # Ensure numeric columns
-                        for col in ["Sales/Revenue", "Cogs", "Total Selling Opex(F)"]:
+                        # ── Build Buyer-Supplier Relationship Map ──
+                        buyer_supplier_map = {}
+                        if supplier_col_t and supplier_col_t in txn_data.columns:
+                            for buyer in all_buyers:
+                                b_data = txn_data[txn_data[buyer_col_t] == buyer]
+                                suppliers = sorted(b_data[supplier_col_t].dropna().unique().tolist())
+                                buyer_supplier_map[buyer] = suppliers
+
+                        # ── Ensure numeric columns ──
+                        for col in ["Sales/Revenue", "Cogs", "Total Selling Opex(F)", "Unit_Price", "Procure_Quantity_Kg", "Receive_Quantity_KG"]:
                             if col in txn_data.columns:
                                 txn_data[col] = pd.to_numeric(txn_data[col], errors="coerce").fillna(0)
 
@@ -1965,9 +1972,8 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                     return mon_name
                             return None
 
-                        # Build comprehensive historical profiles
+                        # ── Build comprehensive historical profiles ──
                         def build_buyer_profile(buyer_name, supplier_name=None):
-                            """Build detailed historical profile for a buyer (and optionally supplier)."""
                             bh = txn_data[txn_data[buyer_col_t] == buyer_name].copy()
                             if bh.empty:
                                 return None
@@ -1978,7 +1984,6 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 if len(bh_supplier) >= 3:
                                     bh = bh_supplier
 
-                            # Add season and month info
                             if month_col_t in bh.columns:
                                 bh["_season"] = bh[month_col_t].apply(txn_month_to_season)
                                 bh["_month"] = bh[month_col_t].apply(get_month_from_txnm)
@@ -1988,25 +1993,19 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
 
                             n_total = len(bh)
 
-                            # ── COGS% analysis ──
                             def calc_cogs_pct(df):
                                 if df.empty or "Sales/Revenue" not in df.columns:
                                     return 0, 0
                                 s = float(df["Sales/Revenue"].sum())
                                 c = float(df["Cogs"].sum()) if "Cogs" in df.columns else 0
                                 pct = (c / s * 100) if s > 0 else 0
-                                # Std dev for confidence
-                                if len(df) > 1 and "Sales/Revenue" in df.columns:
-                                    ratios = []
-                                    for _, row in df.iterrows():
-                                        if row["Sales/Revenue"] > 0:
-                                            ratios.append(row["Cogs"] / row["Sales/Revenue"] * 100)
+                                if len(df) > 1:
+                                    ratios = [row["Cogs"] / row["Sales/Revenue"] * 100 for _, row in df.iterrows() if row["Sales/Revenue"] > 0]
                                     std = np.std(ratios) if len(ratios) > 1 else 0
                                 else:
                                     std = 0
                                 return pct, std
 
-                            # ── S&D% analysis ──
                             def calc_sd_pct(df):
                                 if df.empty or "Sales/Revenue" not in df.columns:
                                     return 0, 0
@@ -2014,46 +2013,35 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 sd = float(df["Total Selling Opex(F)"].sum()) if "Total Selling Opex(F)" in df.columns else 0
                                 pct = (sd / s * 100) if s > 0 else 0
                                 if len(df) > 1:
-                                    ratios = []
-                                    for _, row in df.iterrows():
-                                        if row["Sales/Revenue"] > 0:
-                                            ratios.append(row["Total Selling Opex(F)"] / row["Sales/Revenue"] * 100)
+                                    ratios = [row["Total Selling Opex(F)"] / row["Sales/Revenue"] * 100 for _, row in df.iterrows() if row["Sales/Revenue"] > 0]
                                     std = np.std(ratios) if len(ratios) > 1 else 0
                                 else:
                                     std = 0
                                 return pct, std
 
-                            # ── Price/KG analysis ──
-                            def calc_price_stats(df):
-                                if price_col and price_col in df.columns:
-                                    prices = pd.to_numeric(df[price_col], errors="coerce").dropna()
+                            def calc_unit_price(df):
+                                if unit_price_col and unit_price_col in df.columns:
+                                    prices = df[unit_price_col].replace(0, np.nan).dropna()
                                     if len(prices) > 0:
-                                        return float(prices.mean()), float(prices.std()) if len(prices) > 1 else 0, float(prices.min()), float(prices.max())
-                                if qty_proc_col and qty_proc_col in df.columns and "Sales/Revenue" in df.columns:
-                                    proc = pd.to_numeric(df[qty_proc_col], errors="coerce").fillna(0)
-                                    rev = pd.to_numeric(df["Sales/Revenue"], errors="coerce").fillna(0)
-                                    mask = proc > 0
-                                    if mask.any():
-                                        prices = rev[mask] / proc[mask]
                                         return float(prices.mean()), float(prices.std()) if len(prices) > 1 else 0, float(prices.min()), float(prices.max())
                                 return 0, 0, 0, 0
 
                             # Overall ratios
                             cogs_pct_all, cogs_std_all = calc_cogs_pct(bh)
                             sd_pct_all, sd_std_all = calc_sd_pct(bh)
-                            price_mean, price_std, price_min, price_max = calc_price_stats(bh)
+                            up_mean, up_std, up_min, up_max = calc_unit_price(bh)
 
-                            # On-Season ratios
+                            # On-Season
                             on_season = bh[bh["_season"] == "On-Season"]
                             cogs_pct_on, cogs_std_on = calc_cogs_pct(on_season)
                             sd_pct_on, sd_std_on = calc_sd_pct(on_season)
-                            price_on, price_std_on, _, _ = calc_price_stats(on_season)
+                            up_on, up_on_std, _, _ = calc_unit_price(on_season)
 
-                            # Off-Season ratios
+                            # Off-Season
                             off_season = bh[bh["_season"] == "Off-Season"]
                             cogs_pct_off, cogs_std_off = calc_cogs_pct(off_season)
                             sd_pct_off, sd_std_off = calc_sd_pct(off_season)
-                            price_off, price_std_off, _, _ = calc_price_stats(off_season)
+                            up_off, up_off_std, _, _ = calc_unit_price(off_season)
 
                             # Monthly breakdown
                             monthly_stats = {}
@@ -2062,16 +2050,26 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 if len(mon_df) >= 2:
                                     c, _ = calc_cogs_pct(mon_df)
                                     s, _ = calc_sd_pct(mon_df)
-                                    p, _, _, _ = calc_price_stats(mon_df)
+                                    p, _, _, _ = calc_unit_price(mon_df)
                                     monthly_stats[mon_name] = {"cogs": c, "sd": s, "price": p, "n": len(mon_df)}
 
                             # Rejection analysis
                             if qty_proc_col and qty_recv_col:
-                                tot_proc = float(pd.to_numeric(bh[qty_proc_col], errors="coerce").fillna(0).sum())
-                                tot_recv = float(pd.to_numeric(bh[qty_recv_col], errors="coerce").fillna(0).sum())
+                                tot_proc = float(bh[qty_proc_col].sum())
+                                tot_recv = float(bh[qty_recv_col].sum())
                                 rejection_pct = ((tot_proc - tot_recv) / tot_proc * 100) if tot_proc > 0 else 0
                             else:
                                 rejection_pct = 0
+
+                            # Supplier-specific COGS per buyer
+                            supplier_cogs_map = {}
+                            if supplier_col_t and supplier_col_t in txn_data.columns:
+                                for sup in bh[supplier_col_t].dropna().unique():
+                                    sup_df = bh[bh[supplier_col_t] == sup]
+                                    if len(sup_df) >= 2:
+                                        sc, _ = calc_cogs_pct(sup_df)
+                                        sp, _, _, _ = calc_unit_price(sup_df)
+                                        supplier_cogs_map[sup] = {"cogs_pct": sc, "unit_price": sp, "n": len(sup_df)}
 
                             return {
                                 "n_total": n_total,
@@ -2083,34 +2081,52 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 "sd_pct": sd_pct_all, "sd_std": sd_std_all,
                                 "sd_pct_on": sd_pct_on, "sd_std_on": sd_std_on,
                                 "sd_pct_off": sd_pct_off, "sd_std_off": sd_std_off,
-                                "price_mean": price_mean, "price_std": price_std,
-                                "price_min": price_min, "price_max": price_max,
-                                "price_on": price_on, "price_on_std": price_std_on,
-                                "price_off": price_off, "price_off_std": price_std_off,
+                                "unit_price_mean": up_mean, "unit_price_std": up_std,
+                                "unit_price_min": up_min, "unit_price_max": up_max,
+                                "unit_price_on": up_on, "unit_price_on_std": up_on_std,
+                                "unit_price_off": up_off, "unit_price_off_std": up_off_std,
                                 "monthly_stats": monthly_stats,
                                 "rejection_pct": rejection_pct,
+                                "supplier_cogs_map": supplier_cogs_map,
                             }
 
+                        def calc_ratio(data, cost_col):
+                            if data.empty or "Sales/Revenue" not in data.columns:
+                                return 0
+                            s = float(data["Sales/Revenue"].sum())
+                            c = float(data[cost_col].sum()) if cost_col in data.columns else 0
+                            return (c / s * 100) if s > 0 else 0
+
                         def forecast_deal_pnl(buyer_name, deal_date, supplier_name, proc_qty, price_kg):
-                            """Forecast P&L for a deal using historical analysis."""
                             season = get_season_from_date(deal_date)
                             deal_month = deal_date.strftime("%b").upper()
 
-                            # Build profiles
                             buyer_profile = build_buyer_profile(buyer_name)
                             supplier_profile = build_buyer_profile(buyer_name, supplier_name) if supplier_name else None
 
-                            # Determine data quality & confidence
                             data_points = 0
-                            confidence_factors = []
 
-                            # ── COGS % Forecast ──
+                            # ── COGS % Forecast (supplier-specific per buyer) ──
                             cogs_pct = 0
                             cogs_source = "Company-wide"
                             cogs_confidence = 0
 
-                            if buyer_profile and buyer_profile["n_total"] > 0:
-                                # Prefer: same season > monthly > overall
+                            # Check supplier-specific COGS for this buyer
+                            if supplier_name and buyer_profile and supplier_name in buyer_profile.get("supplier_cogs_map", {}):
+                                sup_data = buyer_profile["supplier_cogs_map"][supplier_name]
+                                if season == "On-Season" and buyer_profile["cogs_pct_on"] > 0:
+                                    # Blend: 40% supplier COGS + 60% buyer on-season
+                                    cogs_pct = sup_data["cogs_pct"] * 0.4 + buyer_profile["cogs_pct_on"] * 0.6
+                                    cogs_source = f"Supplier {supplier_name} ({sup_data['n']} txns) + Buyer On-Season"
+                                elif season == "Off-Season" and buyer_profile["cogs_pct_off"] > 0:
+                                    cogs_pct = sup_data["cogs_pct"] * 0.4 + buyer_profile["cogs_pct_off"] * 0.6
+                                    cogs_source = f"Supplier {supplier_name} ({sup_data['n']} txns) + Buyer Off-Season"
+                                else:
+                                    cogs_pct = sup_data["cogs_pct"] * 0.4 + buyer_profile["cogs_pct"] * 0.6
+                                    cogs_source = f"Supplier {supplier_name} ({sup_data['n']} txns) + Buyer overall"
+                                cogs_confidence = min(95, 70 + sup_data["n"] * 3)
+                                data_points += sup_data["n"]
+                            elif buyer_profile and buyer_profile["n_total"] > 0:
                                 if season == "On-Season" and buyer_profile["cogs_pct_on"] > 0 and buyer_profile["n_on"] >= 3:
                                     cogs_pct = buyer_profile["cogs_pct_on"]
                                     cogs_source = f"Buyer On-Season ({buyer_profile['n_on']} txns)"
@@ -2133,25 +2149,6 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                     cogs_source = f"Buyer overall ({buyer_profile['n_total']} txns)"
                                     cogs_confidence = min(85, 40 + buyer_profile["n_total"] * 3)
                                     data_points += buyer_profile["n_total"]
-
-                            # Supplier-specific adjustment
-                            if supplier_profile and supplier_profile["cogs_pct"] > 0:
-                                if season == "On-Season" and supplier_profile["cogs_pct_on"] > 0:
-                                    sp = supplier_profile["cogs_pct_on"]
-                                elif season == "Off-Season" and supplier_profile["cogs_pct_off"] > 0:
-                                    sp = supplier_profile["cogs_pct_off"]
-                                else:
-                                    sp = supplier_profile["cogs_pct"]
-                                if cogs_pct > 0:
-                                    # Blend: 60% buyer, 40% supplier
-                                    cogs_pct = cogs_pct * 0.6 + sp * 0.4
-                                    cogs_source += f" + Supplier blend ({supplier_profile['n_total']} txns)"
-                                    cogs_confidence = min(95, cogs_confidence + 5)
-                                else:
-                                    cogs_pct = sp
-                                    cogs_source = f"Supplier ({supplier_profile['n_total']} txns)"
-                                    cogs_confidence = min(80, 40 + supplier_profile["n_total"] * 5)
-                                data_points += supplier_profile["n_total"]
 
                             if cogs_pct == 0:
                                 fin_data = st.session_state.fin_data
@@ -2206,58 +2203,58 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                             else:
                                 admin_pct = 0
 
-                            # ── Finance % (buyer-specific from alloc files) ──
+                            # ── Finance % ──
                             on_lookup = build_finance_pct_lookup(st.session_state.fin_alloc_on) if st.session_state.fin_alloc_on is not None else {}
                             off_lookup = build_finance_pct_lookup(st.session_state.fin_alloc_off) if st.session_state.fin_alloc_off is not None else {}
 
-                            def get_buyer_finance_pct(buyer_name, season):
-                                lookup = on_lookup if season == "On-Season" else off_lookup
+                            def get_buyer_finance_pct(bn, s):
+                                lookup = on_lookup if s == "On-Season" else off_lookup
                                 if not lookup:
                                     return 0
-                                parent = extract_parent_buyer(buyer_name).lower()
+                                parent = extract_parent_buyer(bn).lower()
                                 if parent in lookup:
                                     return lookup[parent]
                                 for key, val in lookup.items():
                                     if parent.startswith(key) or key.startswith(parent):
                                         return val
-                                first_word = parent.split()[0] if parent.split() else ""
+                                fw = parent.split()[0] if parent.split() else ""
                                 for key, val in lookup.items():
-                                    if key.startswith(first_word) and first_word:
+                                    if key.startswith(fw) and fw:
                                         return val
                                 return 0
 
                             buyer_fin_pct = get_buyer_finance_pct(buyer_name, season)
                             fin_pct = buyer_fin_pct * 100
 
-                            # ── Price/KG forecast ──
-                            price_source = "User input"
-                            price_confidence = 100
-                            price_forecast = price_kg
-
-                            if buyer_profile and buyer_profile["price_mean"] > 0:
-                                if season == "On-Season" and buyer_profile["price_on"] > 0:
-                                    hist_price = buyer_profile["price_on"]
-                                    price_source = f"Buyer On-Season avg"
-                                elif season == "Off-Season" and buyer_profile["price_off"] > 0:
-                                    hist_price = buyer_profile["price_off"]
-                                    price_source = f"Buyer Off-Season avg"
+                            # ── Unit Price / Purchase Price forecast ──
+                            unit_price_forecast = 0
+                            unit_price_source = "N/A"
+                            if supplier_profile and supplier_profile["unit_price_mean"] > 0:
+                                if season == "On-Season" and supplier_profile["unit_price_on"] > 0:
+                                    unit_price_forecast = supplier_profile["unit_price_on"]
+                                    unit_price_source = f"Supplier On-Season avg"
+                                elif season == "Off-Season" and supplier_profile["unit_price_off"] > 0:
+                                    unit_price_forecast = supplier_profile["unit_price_off"]
+                                    unit_price_source = f"Supplier Off-Season avg"
                                 else:
-                                    hist_price = buyer_profile["price_mean"]
-                                    price_source = f"Buyer overall avg"
-
-                                if supplier_profile and supplier_profile["price_mean"] > 0:
-                                    if season == "On-Season" and supplier_profile["price_on"] > 0:
-                                        sp_price = supplier_profile["price_on"]
-                                    elif season == "Off-Season" and supplier_profile["price_off"] > 0:
-                                        sp_price = supplier_profile["price_off"]
-                                    else:
-                                        sp_price = supplier_profile["price_mean"]
-                                    hist_price = hist_price * 0.5 + sp_price * 0.5
-                                    price_source += f" + Supplier blend"
+                                    unit_price_forecast = supplier_profile["unit_price_mean"]
+                                    unit_price_source = f"Supplier overall avg"
+                            elif buyer_profile and buyer_profile["unit_price_mean"] > 0:
+                                if season == "On-Season" and buyer_profile["unit_price_on"] > 0:
+                                    unit_price_forecast = buyer_profile["unit_price_on"]
+                                    unit_price_source = f"Buyer On-Season avg"
+                                elif season == "Off-Season" and buyer_profile["unit_price_off"] > 0:
+                                    unit_price_forecast = buyer_profile["unit_price_off"]
+                                    unit_price_source = f"Buyer Off-Season avg"
+                                else:
+                                    unit_price_forecast = buyer_profile["unit_price_mean"]
+                                    unit_price_source = f"Buyer overall avg"
 
                             # ── Rejection forecast ──
                             rejection_pct = 0
-                            if buyer_profile:
+                            if supplier_profile and supplier_profile["rejection_pct"] > 0:
+                                rejection_pct = supplier_profile["rejection_pct"]
+                            elif buyer_profile:
                                 rejection_pct = buyer_profile["rejection_pct"]
 
                             # ── Calculate P&L ──
@@ -2271,10 +2268,9 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                             deal_np = deal_nop - deal_finance
 
                             # ── Overall accuracy ──
-                            confidences = [c for c in [cogs_confidence, sd_confidence, price_confidence] if c > 0]
+                            confidences = [c for c in [cogs_confidence, sd_confidence] if c > 0]
                             overall_accuracy = np.mean(confidences) if confidences else 30
 
-                            # Data quality assessment
                             if data_points >= 20:
                                 quality = "High"
                             elif data_points >= 10:
@@ -2292,6 +2288,8 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 "season": season,
                                 "proc_qty": proc_qty,
                                 "price_kg": price_kg,
+                                "unit_price_forecast": unit_price_forecast,
+                                "unit_price_source": unit_price_source,
                                 "rejection_pct": rejection_pct,
                                 "revenue": dp_revenue,
                                 "cogs_pct": cogs_pct, "cogs_source": cogs_source, "cogs_confidence": cogs_confidence,
@@ -2306,22 +2304,17 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 "accuracy": overall_accuracy,
                                 "data_quality": quality,
                                 "data_points": data_points,
-                                "price_source": price_source,
                                 "buyer_n": buyer_profile["n_total"] if buyer_profile else 0,
                                 "supplier_n": supplier_profile["n_total"] if supplier_profile else 0,
                                 "monthly_stats": buyer_profile["monthly_stats"] if buyer_profile else {},
+                                "supplier_cogs_map": buyer_profile.get("supplier_cogs_map", {}) if buyer_profile else {},
                             }
-
-                        def calc_ratio(data, cost_col):
-                            if data.empty or "Sales/Revenue" not in data.columns:
-                                return 0
-                            s = float(data["Sales/Revenue"].sum())
-                            c = float(data[cost_col].sum()) if cost_col in data.columns else 0
-                            return (c / s * 100) if s > 0 else 0
 
                         # Initialize deals
                         if "row_forecast_deals" not in st.session_state:
                             st.session_state.row_forecast_deals = []
+                        if "rf_selected_buyer" not in st.session_state:
+                            st.session_state.rf_selected_buyer = None
 
                         # ── Historical Analysis Summary ──
                         with st.expander("  Historical Analysis Summary", expanded=False):
@@ -2336,28 +2329,56 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 st.write(f"- On-Season txns: **{on_n}** | Off-Season txns: **{off_n}**")
                             st.write("**Forecast Factors:**")
                             st.write("- Buyer-specific COGS% & S&D% (season-adjusted)")
-                            st.write("- Supplier-specific pricing patterns")
+                            st.write("- **Supplier-specific COGS per buyer** (different suppliers = different costs)")
                             st.write("- Monthly variations within buyer")
                             st.write("- On-season vs off-season adjustments")
                             st.write("- Rejection rate from historical data")
                             st.write("- Finance cost from buyer-specific alloc files")
 
-                        # Input form
-                        with st.form("row_forecast_form"):
-                            st.write("**Add New Deal**")
-                            c1, c2, c3 = st.columns(3)
-                            with c1:
-                                dp_buyer = st.selectbox("Buyer Name", all_buyers, key="rf_buyer")
-                            with c2:
-                                dp_date = st.date_input("Deal Date", key="rf_date")
-                            with c3:
-                                dp_supplier = st.selectbox("Supplier Name", ["(Optional)"] + all_suppliers, key="rf_supplier")
+                        # ── Step 1: Select Buyer (outside form for dynamic filtering) ──
+                        st.write("**Step 1: Select Buyer**")
+                        selected_buyer = st.selectbox("Buyer Name", all_buyers, key="rf_buyer_select")
+                        st.session_state.rf_selected_buyer = selected_buyer
 
-                            c4, c5 = st.columns(2)
+                        # Show buyer-supplier info
+                        if selected_buyer in buyer_supplier_map:
+                            linked_suppliers = buyer_supplier_map[selected_buyer]
+                            st.info(f"**{selected_buyer}** works with **{len(linked_suppliers)}** supplier(s): {', '.join(linked_suppliers[:8])}{'...' if len(linked_suppliers) > 8 else ''}")
+
+                            # Show supplier-specific COGS if available
+                            bp = build_buyer_profile(selected_buyer)
+                            if bp and bp.get("supplier_cogs_map"):
+                                with st.expander(f"  Supplier-specific COGS for {selected_buyer}", expanded=False):
+                                    sup_rows = []
+                                    for sup, data in bp["supplier_cogs_map"].items():
+                                        sup_rows.append({
+                                            "Supplier": sup,
+                                            "COGS %": f"{data['cogs_pct']:.1f}%",
+                                            "Avg Unit Price": f"BDT {data['unit_price']:,.0f}" if data['unit_price'] > 0 else "N/A",
+                                            "Txns": data['n'],
+                                        })
+                                    st.dataframe(pd.DataFrame(sup_rows), use_container_width=True, hide_index=True)
+
+                        # ── Step 2: Deal Details Form ──
+                        st.write("**Step 2: Enter Deal Details**")
+                        linked_suppliers = buyer_supplier_map.get(selected_buyer, all_suppliers)
+
+                        with st.form("row_forecast_form"):
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                dp_date = st.date_input("Deal Date", key="rf_date")
+                            with c2:
+                                dp_supplier = st.selectbox("Supplier Name", ["(Optional)"] + linked_suppliers, key="rf_supplier",
+                                                           help="Only suppliers linked to this buyer are shown")
+
+                            c3, c4, c5 = st.columns(3)
+                            with c3:
+                                dp_proc_qty = st.number_input("Procure Quantity (KG)", min_value=0.0, step=100.0, format="%.0f", key="rf_qty")
                             with c4:
-                                dp_proc_qty = st.number_input("Quantity Ordered (KG)", min_value=0.0, step=100.0, format="%.0f", key="rf_qty")
+                                dp_price_kg = st.number_input("Selling Price per KG (BDT)", min_value=0.0, step=1.0, format="%.2f", key="rf_price")
                             with c5:
-                                dp_price_kg = st.number_input("Price per KG (BDT)", min_value=0.0, step=1.0, format="%.2f", key="rf_price")
+                                dp_unit_price = st.number_input("Purchase Price / Unit Price 1 (BDT)", min_value=0.0, step=1.0, format="%.2f", key="rf_unit_price",
+                                                                 help="Optional: Enter if known, otherwise system forecasts from history")
 
                             add_col, clear_col = st.columns([1, 1])
                             with add_col:
@@ -2371,7 +2392,13 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
 
                         if add_deal and dp_proc_qty > 0 and dp_price_kg > 0:
                             supplier_name = dp_supplier if dp_supplier != "(Optional)" else None
-                            result = forecast_deal_pnl(dp_buyer, dp_date, supplier_name, dp_proc_qty, dp_price_kg)
+                            result = forecast_deal_pnl(selected_buyer, dp_date, supplier_name, dp_proc_qty, dp_price_kg)
+                            # Override unit price if user entered it
+                            if dp_unit_price > 0:
+                                result["unit_price_forecast"] = dp_unit_price
+                                result["unit_price_source"] = "User input"
+                            # Calculate procure qty from rejection
+                            result["proc_qty_forecast"] = dp_proc_qty * (1 - result["rejection_pct"] / 100)
                             st.session_state.row_forecast_deals.append(result)
                             st.rerun()
 
@@ -2389,8 +2416,11 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                     "Buyer": d["buyer"],
                                     "Supplier": d["supplier"],
                                     "Season": d["season"],
-                                    "Qty (KG)": f"{d['proc_qty']:,.0f}",
-                                    "Price/KG": f"{d['price_kg']:,.0f}",
+                                    "Procure Qty (KG)": f"{d['proc_qty']:,.0f}",
+                                    "Forecast Reject %": f"{d['rejection_pct']:.2f}%",
+                                    "Receive Qty (KG)": f"{d.get('proc_qty_forecast', d['proc_qty']):,.0f}",
+                                    "Purchase Price": f"BDT {d['unit_price_forecast']:,.0f}" if d['unit_price_forecast'] > 0 else "N/A",
+                                    "Selling Price/KG": f"BDT {d['price_kg']:,.0f}",
                                     "Sales": fmt_crore(d["revenue"]),
                                     "COGS": fmt_crore(d["cogs"]),
                                     "COGS %": f"{d['cogs_pct']:.1f}%",
@@ -2399,9 +2429,7 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                     "S&D": fmt_crore(d["sd"]),
                                     "S&D %": f"{d['sd_pct']:.1f}%",
                                     "Admin": fmt_crore(d["admin"]),
-                                    "Admin %": f"{d['admin_pct']:.1f}%",
                                     "Finance": fmt_crore(d["finance"]),
-                                    "Finance %": f"{d['fin_pct']:.2f}%",
                                     "NOP": fmt_crore(d["nop"]),
                                     "NOP %": f"{d['nop']/rev*100:.1f}%" if rev > 0 else "0.0%",
                                     "NP": fmt_crore(d["np"]),
@@ -2425,8 +2453,11 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 "Buyer": "",
                                 "Supplier": "",
                                 "Season": "",
-                                "Qty (KG)": f"{sum(d['proc_qty'] for d in deals):,.0f}",
-                                "Price/KG": "",
+                                "Procure Qty (KG)": f"{sum(d['proc_qty'] for d in deals):,.0f}",
+                                "Forecast Reject %": "",
+                                "Receive Qty (KG)": f"{sum(d.get('proc_qty_forecast', d['proc_qty']) for d in deals):,.0f}",
+                                "Purchase Price": "",
+                                "Selling Price/KG": "",
                                 "Sales": fmt_crore(t_rev),
                                 "COGS": fmt_crore(t_cogs),
                                 "COGS %": f"{t_cogs/t_rev*100:.1f}%" if t_rev > 0 else "0.0%",
@@ -2435,9 +2466,7 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 "S&D": fmt_crore(t_sd),
                                 "S&D %": f"{t_sd/t_rev*100:.1f}%" if t_rev > 0 else "0.0%",
                                 "Admin": fmt_crore(t_admin),
-                                "Admin %": f"{t_admin/t_rev*100:.1f}%" if t_rev > 0 else "0.0%",
                                 "Finance": fmt_crore(t_fin),
-                                "Finance %": f"{t_fin/t_rev*100:.2f}%" if t_rev > 0 else "0.0%",
                                 "NOP": fmt_crore(t_nop),
                                 "NOP %": f"{t_nop/t_rev*100:.1f}%" if t_rev > 0 else "0.0%",
                                 "NP": fmt_crore(t_np),
@@ -2464,42 +2493,68 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                             with s5:
                                 st.metric("Avg Forecast Accuracy", f"{avg_accuracy:.0f}%")
 
-                            # Per-deal insights with source breakdown
+                            # Per-deal insights
                             st.markdown("---")
                             st.write("**Forecast Analysis per Deal:**")
                             for i, d in enumerate(deals):
                                 acc_color = "  " if d["accuracy"] >= 75 else ("  " if d["accuracy"] >= 50 else "  ")
-                                with st.expander(f"{acc_color} Deal #{i+1}: {d['buyer']} | {d['month']} | Rev: {fmt_crore(d['revenue'])} | NP: {fmt_crore(d['np'])} | Accuracy: {d['accuracy']:.0f}%"):
+                                with st.expander(f"{acc_color} Deal #{i+1}: {d['buyer']} → {d['supplier'] or 'Any'} | {d['month']} | Rev: {fmt_crore(d['revenue'])} | NP: {fmt_crore(d['np'])} | Accuracy: {d['accuracy']:.0f}%"):
                                     ic1, ic2, ic3, ic4 = st.columns(4)
                                     with ic1:
                                         st.metric("Forecast Accuracy", f"{d['accuracy']:.0f}%")
-                                        st.caption(f"Data quality: {d['data_quality']}")
+                                        st.caption(f"Quality: {d['data_quality']}")
                                     with ic2:
                                         st.metric("Data Points", f"{d['data_points']}")
                                         st.caption(f"Buyer: {d['buyer_n']} | Supplier: {d['supplier_n']}")
                                     with ic3:
-                                        st.metric("Rejection Rate", f"{d['rejection_pct']:.1f}%")
+                                        st.metric("Rejection Rate", f"{d['rejection_pct']:.2f}%")
+                                        st.caption(f"Receive: {d.get('proc_qty_forecast', d['proc_qty']):,.0f} KG")
                                     with ic4:
                                         st.metric("Season", d["season"])
 
+                                    ic5, ic6, ic7 = st.columns(3)
+                                    with ic5:
+                                        st.metric("Purchase Price", f"BDT {d['unit_price_forecast']:,.0f}" if d['unit_price_forecast'] > 0 else "N/A")
+                                        st.caption(d["unit_price_source"])
+                                    with ic6:
+                                        st.metric("Selling Price", f"BDT {d['price_kg']:,.0f}")
+                                    with ic7:
+                                        margin = d['price_kg'] - d['unit_price_forecast'] if d['unit_price_forecast'] > 0 else 0
+                                        st.metric("Price Margin", f"BDT {margin:,.0f}")
+                                        st.caption(f"{margin/d['price_kg']*100:.1f}% of selling price" if d['price_kg'] > 0 else "")
+
                                     st.write("**Forecast Sources:**")
                                     src_df = pd.DataFrame({
-                                        "P&L Head": ["COGS %", "S&D %", "Admin %", "Finance %", "Price/KG"],
-                                        "Forecasted": [f"{d['cogs_pct']:.1f}%", f"{d['sd_pct']:.1f}%", f"{d['admin_pct']:.1f}%", f"{d['fin_pct']:.2f}%", f"BDT {d['price_kg']:,.0f}"],
-                                        "Source": [d["cogs_source"], d["sd_source"], "Company-wide", "Buyer-specific alloc", d["price_source"]],
-                                        "Confidence": [f"{d['cogs_confidence']:.0f}%", f"{d['sd_confidence']:.0f}%", "Fixed", "Fixed", "100%"],
+                                        "P&L Head": ["COGS %", "S&D %", "Admin %", "Finance %"],
+                                        "Forecasted": [f"{d['cogs_pct']:.1f}%", f"{d['sd_pct']:.1f}%", f"{d['admin_pct']:.1f}%", f"{d['fin_pct']:.2f}%"],
+                                        "Source": [d["cogs_source"], d["sd_source"], "Company-wide", "Buyer-specific alloc"],
+                                        "Confidence": [f"{d['cogs_confidence']:.0f}%", f"{d['sd_confidence']:.0f}%", "Fixed", "Fixed"],
                                     })
                                     st.dataframe(src_df, use_container_width=True, hide_index=True)
 
+                                    # Show supplier COGS comparison if available
+                                    if d.get("supplier_cogs_map"):
+                                        st.write("**Supplier COGS Comparison (this buyer):**")
+                                        sup_rows = []
+                                        for sup, data in d["supplier_cogs_map"].items():
+                                            sup_rows.append({
+                                                "Supplier": sup,
+                                                "COGS %": f"{data['cogs_pct']:.1f}%",
+                                                "Unit Price": f"BDT {data['unit_price']:,.0f}" if data['unit_price'] > 0 else "N/A",
+                                                "Txns": data['n'],
+                                                "Selected": "✅" if sup == d.get("supplier") else "",
+                                            })
+                                        st.dataframe(pd.DataFrame(sup_rows), use_container_width=True, hide_index=True)
+
                                     if d["monthly_stats"]:
-                                        st.write("**Monthly Breakdown (from history):**")
+                                        st.write("**Monthly Breakdown:**")
                                         mon_rows = []
                                         for mon, ms in d["monthly_stats"].items():
                                             mon_rows.append({
                                                 "Month": mon,
                                                 "COGS %": f"{ms['cogs']:.1f}%",
                                                 "S&D %": f"{ms['sd']:.1f}%",
-                                                "Price/KG": f"BDT {ms['price']:,.0f}" if ms['price'] > 0 else "N/A",
+                                                "Unit Price": f"BDT {ms['price']:,.0f}" if ms['price'] > 0 else "N/A",
                                                 "Txns": ms["n"],
                                             })
                                         if mon_rows:
@@ -2509,7 +2564,7 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                         st.session_state.row_forecast_deals.pop(i)
                                         st.rerun()
                         else:
-                            st.info("Add deals above to see the forecasted P&L. The system will analyse historical data to provide accurate forecasts.")
+                            st.info("Add deals above to see the forecasted P&L.")
                     else:
                         st.info("Upload transaction data to use the Row-Level P&L Forecast.")
 
