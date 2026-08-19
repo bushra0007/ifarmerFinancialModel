@@ -388,7 +388,7 @@ st.markdown(f"""
 <div style="background-color: #000000 !important; padding: 2.5rem 3rem 1.5rem 3rem; margin: 0 -2rem 1.5rem -2rem;">
     <div style="display: flex; align-items: center; gap: 1.5rem; margin-bottom: 0;">
         <img src="data:image/png;base64,{logo_b64}" style="height: 120px; width: auto;" />
-        <p style="margin: 0; font-size: 1.6rem; font-weight: 400; color: #cccccc !important;">Supply Chain P&L Analytics</p>
+        <p style="margin: 0; font-size: 26px; font-weight: 400; color: #cccccc !important;">Supply Chain P&L Analytics</p>
     </div>
 </div>
 """, unsafe_allow_html=True)
