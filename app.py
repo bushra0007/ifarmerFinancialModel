@@ -386,10 +386,10 @@ if os.path.exists(logo_path):
 # ─── TITLE SECTION ────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div style="background-color: #000000 !important; padding: 2rem 3rem 1rem 3rem; margin: 0 -2rem 1rem -2rem;">
-    <div style="margin-bottom: 0.3rem;">
+    <div style="margin-bottom: 0;">
         <img src="data:image/png;base64,{logo_b64}" style="height: 120px; width: auto;" />
     </div>
-    <p style="margin: 0; font-size: 34px; font-weight: 700; color: #cccccc !important;">Supply Chain P&L Analytics</p>
+    <p style="margin: -10px 0 0 0; font-size: 34px; font-weight: 700; color: #cccccc !important;">Supply Chain P&L Analytics</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -647,10 +647,10 @@ def pnl_summary_table(df: pd.DataFrame, include_type: str = None) -> pd.DataFram
 with st.sidebar:
     st.markdown(f"""
     <div style="padding: 1rem 0 1.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 1.5rem;">
-        <div style="margin-bottom: 0.3rem;">
+        <div style="margin-bottom: 0;">
             <img src="data:image/png;base64,{logo_b64}" style="height: 80px; width: auto;" />
         </div>
-        <p style="margin: 0; font-size: 22px; font-weight: 700; color: #999999;">Supply Chain P&L Analytics</p>
+        <p style="margin: -5px 0 0 0; font-size: 22px; font-weight: 700; color: #999999;">Supply Chain P&L Analytics</p>
     </div>
     """, unsafe_allow_html=True)
 
