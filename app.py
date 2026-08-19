@@ -2260,6 +2260,8 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                             # ── Unit Price / Purchase Price forecast ──
                             unit_price_forecast = 0
                             unit_price_source = "N/A"
+                            unit_price_min = 0
+                            unit_price_max = 0
                             if supplier_profile and supplier_profile["unit_price_mean"] > 0:
                                 if season == "On-Season" and supplier_profile["unit_price_on"] > 0:
                                     unit_price_forecast = supplier_profile["unit_price_on"]
@@ -2270,6 +2272,8 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 else:
                                     unit_price_forecast = supplier_profile["unit_price_mean"]
                                     unit_price_source = f"Supplier overall avg"
+                                unit_price_min = supplier_profile["unit_price_min"]
+                                unit_price_max = supplier_profile["unit_price_max"]
                             elif buyer_profile and buyer_profile["unit_price_mean"] > 0:
                                 if season == "On-Season" and buyer_profile["unit_price_on"] > 0:
                                     unit_price_forecast = buyer_profile["unit_price_on"]
@@ -2280,6 +2284,8 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 else:
                                     unit_price_forecast = buyer_profile["unit_price_mean"]
                                     unit_price_source = f"Buyer overall avg"
+                                unit_price_min = buyer_profile["unit_price_min"]
+                                unit_price_max = buyer_profile["unit_price_max"]
 
                             # ── Rejection forecast (Full and Partial separately) ──
                             full_rejection_pct = 0
@@ -2331,6 +2337,8 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 "price_kg": price_kg,
                                 "unit_price_forecast": unit_price_forecast,
                                 "unit_price_source": unit_price_source,
+                                "unit_price_min": unit_price_min,
+                                "unit_price_max": unit_price_max,
                                 "full_rejection_pct": full_rejection_pct,
                                 "partial_rejection_pct": partial_rejection_pct,
                                 "full_rejection_count": full_rejection_count,
@@ -2474,7 +2482,8 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                     "Procure Qty (KG)": f"{d['proc_qty']:,.0f}",
                                     "Full Rejection %": f"{d['full_rejection_pct']:.2f}%",
                                     "Partial Rejection %": f"{d['partial_rejection_pct']:.2f}%",
-                                    "Forecasted Price": f"BDT {d['historical_purchase_price']:,.0f}" if d.get('historical_purchase_price', 0) > 0 else "N/A",
+                                    "Hist. Price Min": f"BDT {d['unit_price_min']:,.0f}" if d.get('unit_price_min', 0) > 0 else "N/A",
+                                    "Hist. Price Max": f"BDT {d['unit_price_max']:,.0f}" if d.get('unit_price_max', 0) > 0 else "N/A",
                                     "Purchase Price": f"BDT {d['unit_price_forecast']:,.0f}" if d['unit_price_forecast'] > 0 else "N/A",
                                     "Selling Price/KG": f"BDT {d['price_kg']:,.0f}",
                                     "Sales": fmt_crore(d["revenue"]),
@@ -2512,7 +2521,8 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 "Procure Qty (KG)": f"{sum(d['proc_qty'] for d in deals):,.0f}",
                                 "Full Rejection %": "",
                                 "Partial Rejection %": "",
-                                "Forecasted Price": "",
+                                "Hist. Price Min": "",
+                                "Hist. Price Max": "",
                                 "Purchase Price": "",
                                 "Selling Price/KG": "",
                                 "Sales": fmt_crore(t_rev),
@@ -2572,13 +2582,14 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
 
                                     ic5, ic6, ic7, ic8 = st.columns(4)
                                     with ic5:
-                                        st.metric("Forecasted Price", f"BDT {d['historical_purchase_price']:,.0f}" if d.get('historical_purchase_price', 0) > 0 else "N/A")
-                                        st.caption("From historical patterns")
+                                        st.metric("Hist. Price Min", f"BDT {d['unit_price_min']:,.0f}" if d.get('unit_price_min', 0) > 0 else "N/A")
+                                        st.caption("Lowest from supplier")
                                     with ic6:
+                                        st.metric("Hist. Price Max", f"BDT {d['unit_price_max']:,.0f}" if d.get('unit_price_max', 0) > 0 else "N/A")
+                                        st.caption("Highest from supplier")
+                                    with ic7:
                                         st.metric("Purchase Price", f"BDT {d['unit_price_forecast']:,.0f}" if d['unit_price_forecast'] > 0 else "N/A")
                                         st.caption(d["unit_price_source"])
-                                    with ic7:
-                                        st.metric("Selling Price", f"BDT {d['price_kg']:,.0f}")
                                     with ic8:
                                         st.metric("Season", d["season"])
 
