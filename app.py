@@ -2300,16 +2300,13 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
 
                             # ── Calculate P&L ──
                             dp_revenue = proc_qty * price_kg
-                            deal_cogs = unit_price_forecast * proc_qty if unit_price_forecast > 0 else dp_revenue * cogs_pct / 100
+                            deal_cogs = dp_revenue * cogs_pct / 100
                             deal_gp = dp_revenue - deal_cogs
                             deal_sd = dp_revenue * sd_pct / 100
                             deal_admin = dp_revenue * admin_pct / 100
                             deal_nop = deal_gp - deal_sd - deal_admin
                             deal_finance = dp_revenue * fin_pct / 100
                             deal_np = deal_nop - deal_finance
-
-                            # Calculate COGS % from actual COGS
-                            cogs_pct_actual = (deal_cogs / dp_revenue * 100) if dp_revenue > 0 else 0
 
                             # ── Overall accuracy ──
                             confidences = [c for c in [cogs_confidence, sd_confidence] if c > 0]
@@ -2340,7 +2337,7 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                                 "partial_rejection_count": partial_rejection_count,
                                 "revenue": dp_revenue,
                                 "cogs": deal_cogs,
-                                "cogs_pct": cogs_pct_actual, "cogs_source": cogs_source, "cogs_confidence": cogs_confidence,
+                                "cogs_pct": cogs_pct, "cogs_source": cogs_source, "cogs_confidence": cogs_confidence,
                                 "gp": deal_gp,
                                 "sd_pct": sd_pct, "sd_source": sd_source, "sd_confidence": sd_confidence,
                                 "sd": deal_sd,
@@ -2454,12 +2451,6 @@ if st.session_state.txn_data is not None or st.session_state.fin_data is not Non
                             if dp_unit_price > 0:
                                 result["unit_price_forecast"] = dp_unit_price
                                 result["unit_price_source"] = "User input"
-                            # Recalculate COGS with correct purchase price
-                            result["cogs"] = result["unit_price_forecast"] * dp_proc_qty
-                            result["cogs_pct"] = (result["cogs"] / result["revenue"] * 100) if result["revenue"] > 0 else 0
-                            result["gp"] = result["revenue"] - result["cogs"]
-                            result["nop"] = result["gp"] - result["sd"] - result["admin"]
-                            result["np"] = result["nop"] - result["finance"]
                             # Calculate procure qty from rejection (full + partial combined)
                             total_rejection = result["full_rejection_pct"] + result["partial_rejection_pct"]
                             result["proc_qty_forecast"] = dp_proc_qty * (1 - total_rejection / 100)
