@@ -383,49 +383,22 @@ st.markdown("""
     }
 
     /* ── DATE INPUT FIX ── */
-    [data-testid="stDateInput"] > div > div > div > input,
-    [data-testid="stDateInput"] input[type="date"],
-    [data-testid="stDateInput"] [data-baseweb="input"] input {
+    * [data-testid="stDateInput"] input,
+    * [data-testid="stDateInput"] div[data-baseweb] input,
+    * div[data-baseweb="input"] input,
+    * [data-testid="stForm"] div[data-baseweb="input"] input {
         color: #ffffff !important;
         -webkit-text-fill-color: #ffffff !important;
+        opacity: 1 !important;
+        caret-color: #ffffff !important;
     }
-    [data-testid="stDateInput"] [data-baseweb="select"],
-    [data-testid="stDateInput"] [data-baseweb="input"] {
-        background-color: #1e1e1e !important;
+    /* Override any inherited color on parent divs */
+    * [data-testid="stDateInput"] div[data-baseweb] {
         color: #ffffff !important;
     }
-    [data-testid="stDateInput"] [data-baseweb="input"] input {
-        color: #ffffff !important;
-        -webkit-text-fill-color: #ffffff !important;
-    }
-    /* Calendar icon area */
-    [data-testid="stDateInput"] svg {
-        fill: #ffffff !important;
-    }
-    /* Placeholder */
-    [data-testid="stDateInput"] input::placeholder {
-        color: #aaaaaa !important;
-        -webkit-text-fill-color: #aaaaaa !important;
-    }
-    /* Month/Year text in calendar dropdown */
-    [data-testid="stDateInput"] [role="listbox"] * {
-        color: #ffffff !important;
-    }
-    /* Force date input container background and text */
-    [data-testid="stDateInput"] div[data-baseweb] {
-        background-color: #1e1e1e !important;
-    }
-    [data-testid="stDateInput"] div[data-baseweb] input {
+    * [data-testid="stDateInput"] span {
         color: #ffffff !important;
         -webkit-text-fill-color: #ffffff !important;
-    }
-    /* All nested inputs in date widget */
-    [data-testid="stForm"] [data-testid="stDateInput"] input {
-        color: #ffffff !important;
-        -webkit-text-fill-color: #ffffff !important;
-    }
-    [data-testid="stForm"] [data-testid="stDateInput"] div {
-        color: #ffffff !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -436,6 +409,30 @@ logo_b64 = ""
 if os.path.exists(logo_path):
     with open(logo_path, "rb") as f:
         logo_b64 = base64.b64encode(f.read()).decode()
+
+# ─── Fix date input colors globally ─────────────────────────────────────────
+st.components.v1.html("""
+<script>
+function fixDateInput() {
+    document.querySelectorAll('input').forEach(function(input) {
+        if (input.closest('[data-testid="stDateInput"]') || input.type === 'date') {
+            input.style.color = '#ffffff';
+            input.style.webkitTextFillColor = '#ffffff';
+            input.style.caretColor = '#ffffff';
+        }
+    });
+    document.querySelectorAll('[data-testid="stDateInput"] span').forEach(function(span) {
+        span.style.color = '#ffffff';
+        span.style.webkitTextFillColor = '#ffffff';
+    });
+    document.querySelectorAll('[data-testid="stDateInput"] div').forEach(function(div) {
+        div.style.color = '#ffffff';
+    });
+}
+fixDateInput();
+setInterval(fixDateInput, 300);
+</script>
+""", height=0)
 
 # ─── TITLE SECTION ────────────────────────────────────────────────────────────
 st.markdown(f"""
