@@ -381,6 +381,36 @@ st.markdown("""
     [data-testid="stDecoration"] {
         background: #111111 !important;
     }
+
+    /* ── DATE INPUT FIX ── */
+    [data-testid="stDateInput"] > div > div > div > input,
+    [data-testid="stDateInput"] input[type="date"],
+    [data-testid="stDateInput"] [data-baseweb="input"] input {
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+    }
+    [data-testid="stDateInput"] [data-baseweb="select"],
+    [data-testid="stDateInput"] [data-baseweb="input"] {
+        background-color: #1e1e1e !important;
+        color: #ffffff !important;
+    }
+    [data-testid="stDateInput"] [data-baseweb="input"] input {
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+    }
+    /* Calendar icon area */
+    [data-testid="stDateInput"] svg {
+        fill: #ffffff !important;
+    }
+    /* Placeholder */
+    [data-testid="stDateInput"] input::placeholder {
+        color: #aaaaaa !important;
+        -webkit-text-fill-color: #aaaaaa !important;
+    }
+    /* Month/Year text in calendar dropdown */
+    [data-testid="stDateInput"] [role="listbox"] * {
+        color: #ffffff !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
