@@ -411,6 +411,22 @@ st.markdown("""
     [data-testid="stDateInput"] [role="listbox"] * {
         color: #ffffff !important;
     }
+    /* Force date input container background and text */
+    [data-testid="stDateInput"] div[data-baseweb] {
+        background-color: #1e1e1e !important;
+    }
+    [data-testid="stDateInput"] div[data-baseweb] input {
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+    }
+    /* All nested inputs in date widget */
+    [data-testid="stForm"] [data-testid="stDateInput"] input {
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+    }
+    [data-testid="stForm"] [data-testid="stDateInput"] div {
+        color: #ffffff !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
