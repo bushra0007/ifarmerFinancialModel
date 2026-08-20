@@ -210,18 +210,9 @@ st.markdown("""
     [data-testid="stSidebar"] span { color: #e0e0e0 !important; }
     [data-baseweb="select"] [role="combobox"],
     [data-testid="stSelectbox"] [role="combobox"],
-    [data-testid="stNumberInput"] input,
-    [data-baseweb="input"] input,
-    [data-testid="stDateInput"] input {
+    [data-testid="stNumberInput"] input {
         color: #ffffff !important;
         -webkit-text-fill-color: #ffffff !important;
-    }
-    [data-testid="stDateInput"] {
-        color: #ffffff !important;
-    }
-    [data-testid="stDateInput"] input::placeholder {
-        color: #aaaaaa !important;
-        -webkit-text-fill-color: #aaaaaa !important;
     }
 
     /* ── SIDEBAR - DARK BLACK BG, WHITE TEXT ── */
@@ -382,14 +373,22 @@ st.markdown("""
         background: #111111 !important;
     }
 
-    /* ── DATE INPUT FIX ── */
-    [data-testid="stDateInput"] input {
+    /* ── DATE INPUT: white text on dark bg ── */
+    [data-testid="stDateInput"] label {
+        color: #1a1a1a !important;
+    }
+    [data-testid="stDateInput"] [data-baseweb="input"] {
+        background-color: #2d2d2d !important;
+    }
+    [data-testid="stDateInput"] [data-baseweb="input"] input {
         color: #ffffff !important;
         -webkit-text-fill-color: #ffffff !important;
     }
-    /* Label stays black on white background */
-    [data-testid="stDateInput"] label {
-        color: #1a1a1a !important;
+    /* Target the actual visible text node */
+    [data-testid="stDateInput"] input[data-baseweb="input"],
+    [data-testid="stDateInput"] div[data-baseweb="input"] input {
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -405,23 +404,27 @@ if os.path.exists(logo_path):
 st.components.v1.html("""
 <script>
 function fixDateInput() {
-    document.querySelectorAll('[data-testid="stDateInput"] input, [data-testid="stDateInput"] input[type="text"]').forEach(function(el) {
-        el.style.color = '#ffffff';
-        el.style.webkitTextFillColor = '#ffffff';
-        el.style.caretColor = '#ffffff';
-    });
-    document.querySelectorAll('[data-testid="stDateInput"] [data-baseweb="input"] span, [data-testid="stDateInput"] [role="textbox"]').forEach(function(el) {
-        el.style.color = '#ffffff';
-        el.style.webkitTextFillColor = '#ffffff';
-    });
-    document.querySelectorAll('[data-testid="stDateInput"] [data-baseweb="input"]').forEach(function(el) {
-        el.style.color = '#ffffff';
+    // Find the date input container
+    document.querySelectorAll('[data-testid="stDateInput"]').forEach(function(container) {
+        // Find the baseweb input wrapper
+        container.querySelectorAll('[data-baseweb="input"]').forEach(function(bw) {
+            bw.style.backgroundColor = '#2d2d2d';
+        });
+        // Find ALL input elements inside
+        container.querySelectorAll('input').forEach(function(input) {
+            input.style.color = '#ffffff';
+            input.style.setProperty('color', '#ffffff', 'important');
+            input.style.setProperty('-webkit-text-fill-color', '#ffffff', 'important');
+            input.style.caretColor = '#ffffff';
+        });
     });
 }
 fixDateInput();
 const observer = new MutationObserver(fixDateInput);
-observer.observe(document.body, {childList: true, subtree: true});
-setInterval(fixDateInput, 200);
+observer.observe(document.body, {childList: true, subtree: true, attributes: true});
+setTimeout(fixDateInput, 500);
+setTimeout(fixDateInput, 1000);
+setTimeout(fixDateInput, 2000);
 </script>
 """, height=0)
 
