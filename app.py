@@ -383,20 +383,7 @@ st.markdown("""
     }
 
     /* ── DATE INPUT FIX ── */
-    * [data-testid="stDateInput"] input,
-    * [data-testid="stDateInput"] div[data-baseweb] input,
-    * div[data-baseweb="input"] input,
-    * [data-testid="stForm"] div[data-baseweb="input"] input {
-        color: #ffffff !important;
-        -webkit-text-fill-color: #ffffff !important;
-        opacity: 1 !important;
-        caret-color: #ffffff !important;
-    }
-    /* Override any inherited color on parent divs */
-    * [data-testid="stDateInput"] div[data-baseweb] {
-        color: #ffffff !important;
-    }
-    * [data-testid="stDateInput"] span {
+    [data-testid="stDateInput"] input {
         color: #ffffff !important;
         -webkit-text-fill-color: #ffffff !important;
     }
@@ -414,19 +401,10 @@ if os.path.exists(logo_path):
 st.components.v1.html("""
 <script>
 function fixDateInput() {
-    document.querySelectorAll('input').forEach(function(input) {
-        if (input.closest('[data-testid="stDateInput"]') || input.type === 'date') {
-            input.style.color = '#ffffff';
-            input.style.webkitTextFillColor = '#ffffff';
-            input.style.caretColor = '#ffffff';
-        }
-    });
-    document.querySelectorAll('[data-testid="stDateInput"] span').forEach(function(span) {
-        span.style.color = '#ffffff';
-        span.style.webkitTextFillColor = '#ffffff';
-    });
-    document.querySelectorAll('[data-testid="stDateInput"] div').forEach(function(div) {
-        div.style.color = '#ffffff';
+    document.querySelectorAll('[data-testid="stDateInput"] input').forEach(function(input) {
+        input.style.color = '#ffffff';
+        input.style.webkitTextFillColor = '#ffffff';
+        input.style.caretColor = '#ffffff';
     });
 }
 fixDateInput();
