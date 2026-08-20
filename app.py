@@ -405,14 +405,23 @@ if os.path.exists(logo_path):
 st.components.v1.html("""
 <script>
 function fixDateInput() {
-    document.querySelectorAll('[data-testid="stDateInput"] input').forEach(function(input) {
-        input.style.color = '#ffffff';
-        input.style.webkitTextFillColor = '#ffffff';
-        input.style.caretColor = '#ffffff';
+    document.querySelectorAll('[data-testid="stDateInput"] input, [data-testid="stDateInput"] input[type="text"]').forEach(function(el) {
+        el.style.color = '#ffffff';
+        el.style.webkitTextFillColor = '#ffffff';
+        el.style.caretColor = '#ffffff';
+    });
+    document.querySelectorAll('[data-testid="stDateInput"] [data-baseweb="input"] span, [data-testid="stDateInput"] [role="textbox"]').forEach(function(el) {
+        el.style.color = '#ffffff';
+        el.style.webkitTextFillColor = '#ffffff';
+    });
+    document.querySelectorAll('[data-testid="stDateInput"] [data-baseweb="input"]').forEach(function(el) {
+        el.style.color = '#ffffff';
     });
 }
 fixDateInput();
-setInterval(fixDateInput, 300);
+const observer = new MutationObserver(fixDateInput);
+observer.observe(document.body, {childList: true, subtree: true});
+setInterval(fixDateInput, 200);
 </script>
 """, height=0)
 
