@@ -387,6 +387,10 @@ st.markdown("""
         color: #ffffff !important;
         -webkit-text-fill-color: #ffffff !important;
     }
+    /* Label stays black on white background */
+    [data-testid="stDateInput"] label {
+        color: #1a1a1a !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
