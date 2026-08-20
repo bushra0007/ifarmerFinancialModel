@@ -211,9 +211,17 @@ st.markdown("""
     [data-baseweb="select"] [role="combobox"],
     [data-testid="stSelectbox"] [role="combobox"],
     [data-testid="stNumberInput"] input,
-    [data-baseweb="input"] input {
+    [data-baseweb="input"] input,
+    [data-testid="stDateInput"] input {
         color: #ffffff !important;
         -webkit-text-fill-color: #ffffff !important;
+    }
+    [data-testid="stDateInput"] {
+        color: #ffffff !important;
+    }
+    [data-testid="stDateInput"] input::placeholder {
+        color: #aaaaaa !important;
+        -webkit-text-fill-color: #aaaaaa !important;
     }
 
     /* ── SIDEBAR - DARK BLACK BG, WHITE TEXT ── */
